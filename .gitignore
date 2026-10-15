@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+# Données et résultats volumineux : hors du dépôt
+data/
+runs/
+*.pt
+*.npz
+*.h5
+*.mat
+*.csv
+slurm-*.out

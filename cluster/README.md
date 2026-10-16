@@ -1,78 +1,78 @@
-# Savio (BRC) — mise en route
+# Getting started on Savio (BRC)
 
-Référence officielle : https://docs-research-it.berkeley.edu/services/high-performance-computing/user-guide/
+Official documentation: https://docs-research-it.berkeley.edu/services/high-performance-computing/user-guide/
 
-> La connexion demande **ton PIN + le code Google Authenticator**. Ces étapes sont à faire **par toi** ;
-> rien dans ce dépôt ne stocke ni ne saisit d'identifiants.
-> Les points marqués « à vérifier » viennent de connaissances générales sur Savio, pas de la page de connexion.
+> Logging in takes your PIN plus the Google Authenticator code, so these steps have to be done by hand. Nothing in
+> this repository stores or types credentials. Points marked "to check" come from general knowledge of Savio, not
+> from the login page.
 
-## 1. Première connexion (une fois)
+## 1. First login (once)
 
-1. Avoir configuré le jeton OTP (Google Authenticator) — voir *Setting Up One-Time Passwords* dans la doc.
-2. Depuis un terminal :
+1. Set up the OTP token (Google Authenticator); see *Setting Up One-Time Passwords* in the docs.
+2. From a terminal:
    ```bash
-   ssh <ton_login_savio>@hpc.brc.berkeley.edu
-   # Password: PIN suivi immédiatement du code à 6 chiffres
+   ssh <savio_login>@hpc.brc.berkeley.edu
+   # Password: the PIN immediately followed by the 6-digit code
    ```
-3. Une fois connecté, repérer **ton compte Slurm** (commence par `fc_` ou `co_`) et les partitions accessibles :
+3. Once logged in, find your Slurm account (it starts with `fc_` or `co_`) and the partitions you can use:
    ```bash
-   sacctmgr -p show associations user=$USER     # à vérifier : liste comptes / partitions / QoS
-   sinfo -s                                     # partitions disponibles
+   sacctmgr -p show associations user=$USER     # to check: lists accounts / partitions / QoS
+   sinfo -s                                     # available partitions
    ```
-   → Noter `ACCOUNT` (ex. `fc_xxx`) : il remplace `<ACCOUNT>` dans les scripts `.sbatch`.
+   Write down the `ACCOUNT` (e.g. `fc_xxx`): it replaces `<ACCOUNT>` in the `.sbatch` scripts.
 
-## 2. Connexion sans mot de passe (optionnel, certificat de 12 h)
+## 2. Login without a password (optional, 12-hour certificate)
 
-Sous Windows, la doc recommande WSL (Ubuntu). Dans un terminal WSL :
+On Windows the docs recommend WSL (Ubuntu). In a WSL terminal:
 ```bash
 git clone https://github.com/lbnl-science-it/lrc-scripts.git
 cd lrc-scripts
-./request_cert.sh -p brc          # demande login, PIN, puis OTP
+./request_cert.sh -p brc          # asks for login, PIN, then OTP
 ```
-Puis ajouter à `~/.ssh/config` (côté Windows, chemin vers le certificat dans WSL) :
+Then add this to `~/.ssh/config` (on the Windows side, with the path to the certificate inside WSL):
 ```
 Host savio
-    User <ton_login_savio>
+    User <savio_login>
     HostName hpc.brc.berkeley.edu
-    IdentityFile //wsl$/Ubuntu/home/<user_wsl>/.ssh/ssh_certs/brc_cert
+    IdentityFile //wsl$/Ubuntu/home/<wsl_user>/.ssh/ssh_certs/brc_cert
     IdentitiesOnly yes
 ```
-Ensuite : `ssh savio`. Le certificat expire après 12 h (le recréer avec `request_cert.sh`).
+After that, `ssh savio` works. The certificate expires after 12 hours; run `request_cert.sh` again to get a new one.
 
-## 3. Installer l'environnement sur Savio (une fois)
+## 3. Install the environment on Savio (once)
 
 ```bash
 ssh savio
-cd /global/scratch/users/$USER            # à vérifier : espace scratch (grand, non sauvegardé)
+cd /global/scratch/users/$USER            # to check: scratch space (large, not backed up)
 git clone https://github.com/clementdumeril/WingJEPA.git
 cd WingJEPA
-bash cluster/setup_env.sh                  # crée l'environnement Python dans scratch
+bash cluster/setup_env.sh                  # creates the Python environment in scratch
 ```
 
-## 4. Lancer des calculs
+## 4. Running jobs
 
-**Ne jamais lancer de calcul sur le nœud de connexion** : toujours passer par Slurm.
+Never run computations on the login node; always go through Slurm.
 
 ```bash
-sbatch cluster/job_cpu.sbatch scripts/phase0_jsbsim_checks.py     # un job CPU de test
-sbatch --array=0-134 cluster/job_array.sbatch configs/sweep.yaml  # la grille d'expériences (phase 3)
-squeue -u $USER                                                    # suivre ses jobs
+sbatch cluster/job_cpu.sbatch scripts/phase0_jsbsim_checks.py     # a test CPU job
+sbatch --array=0-134 cluster/job_array.sbatch configs/sweep.yaml  # the experiment grid (phase 3)
+squeue -u $USER                                                    # check your jobs
 ```
 
-Nos calculs (JSBSim, modèles ~100 k paramètres) sont **surtout CPU** : les partitions HTC
-(`savio3_htc`, `savio4_htc`, allocation par cœur) sont adaptées. Le GPU n'est pas indispensable.
+The workload here (JSBSim, models of ~100 k parameters) is mostly CPU, so the HTC partitions (`savio3_htc`,
+`savio4_htc`, allocated per core) fit well. A GPU isn't required.
 
-## 5. Récupérer les résultats
+## 5. Getting results back
 
-Utiliser le nœud de transfert `dtn.brc.berkeley.edu` (pas le nœud de connexion) :
+Use the transfer node `dtn.brc.berkeley.edu`, not the login node:
 ```bash
-scp -r <ton_login_savio>@dtn.brc.berkeley.edu:/global/scratch/users/<ton_login_savio>/WingJEPA/runs ./runs
+scp -r <savio_login>@dtn.brc.berkeley.edu:/global/scratch/users/<savio_login>/WingJEPA/runs ./runs
 ```
 
-## Notre configuration (vérifiée le 15 oct. 2026)
+## My configuration (checked Oct 15, 2026)
 
-- Login : `clementdumeril` — compte Slurm : **`ic_piml`** (instructional computing du cours).
-- CPU : `savio3_htc`, `savio4_htc` (QoS `savio_normal`, `savio_debug`) → **défaut des scripts : `savio4_htc`**.
-- GPU (si besoin) : `savio3_gpu` (QoS `a40_gpu3_ica`, `v100_gpu3_ica`, `gtx2080_gpu3_ica`),
+- Login `clementdumeril`, Slurm account `ic_piml` (the course's instructional computing allocation).
+- CPU: `savio3_htc`, `savio4_htc` (QoS `savio_normal`, `savio_debug`). The scripts default to `savio4_htc`.
+- GPU if needed: `savio3_gpu` (QoS `a40_gpu3_ica`, `v100_gpu3_ica`, `gtx2080_gpu3_ica`),
   `savio4_gpu` (QoS `a5k_gpu4_ica`).
-- Espace de travail : `/global/scratch/users/clementdumeril/WingJEPA`.
+- Working directory: `/global/scratch/users/clementdumeril/WingJEPA`.

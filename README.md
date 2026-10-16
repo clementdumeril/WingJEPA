@@ -1,12 +1,12 @@
 # WingJEPA
 
-**Where should physics enter a latent world model?** JEPA-style dynamics models for fixed-wing flight under model misspecification.
+Where should physics enter a latent world model? This project compares JEPA-style dynamics models for fixed-wing flight when the physical model they are given is wrong.
 
-Independent project for *Physics-Inspired Machine Learning* (UC Berkeley, Fall 2026), inspired by SkyJEPA (Rao et al., arXiv 2606.23444). Not affiliated with the SkyJEPA authors.
+It is an independent project for *Physics-Inspired Machine Learning* (UC Berkeley, Fall 2026), inspired by SkyJEPA (Rao et al., arXiv 2606.23444). I am not affiliated with the SkyJEPA authors.
 
 ## Question
 
-Does embedding an imperfect physical model into a latent dynamics architecture improve generalization compared with enforcing the same physics through the training objective?
+Does building an imperfect physical model into a latent dynamics architecture generalize better than enforcing the same physics through the training loss?
 
 | Model | Where physics enters |
 |---|---|
@@ -16,7 +16,7 @@ Does embedding an imperfect physical model into a latent dynamics architecture i
 | C | architecture (physics-based latent decoder + learned residual) |
 | D | architecture + energy structure (port-Hamiltonian decoder) |
 
-Truth data: JSBSim (nonlinear aerodynamics). Prior: simplified linear longitudinal aerodynamics at three levels of misspecification. Real-flight check: NTNU Skywalker X8 dataset (doi:10.18710/NNHVBP).
+The ground truth comes from JSBSim (nonlinear aerodynamics). The prior is a simplified linear longitudinal aerodynamic model at three levels of misspecification. As a real-flight check I plan to use the NTNU Skywalker X8 dataset (doi:10.18710/NNHVBP).
 
 ## Layout
 
@@ -38,11 +38,11 @@ python -m venv C:/Users/admin/venvs/wingjepa
 C:/Users/admin/venvs/wingjepa/Scripts/python -m pip install -e ".[dev]"
 ```
 
-Cluster setup: see [cluster/README.md](cluster/README.md).
+For the cluster, see [cluster/README.md](cluster/README.md).
 
 ## Status
 
-- [x] Phase 0: JSBSim checks, X8 dataset check, repository skeleton, cluster templates — see [docs/phase0_findings.md](docs/phase0_findings.md)
+- [x] Phase 0: JSBSim checks, X8 dataset check, repository skeleton, cluster templates (see [docs/phase0_findings.md](docs/phase0_findings.md))
 - [ ] Phase 1: longitudinal data generation
 - [ ] Phase 2: models A, B, C0, C, D
 - [ ] Phase 3: experiments on Savio

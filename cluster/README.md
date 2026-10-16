@@ -2,9 +2,8 @@
 
 Official documentation: https://docs-research-it.berkeley.edu/services/high-performance-computing/user-guide/
 
-> Logging in takes your PIN plus the Google Authenticator code, so these steps have to be done by hand. Nothing in
-> this repository stores or types credentials. Points marked "to check" come from general knowledge of Savio, not
-> from the login page.
+> Login takes your PIN plus a Google Authenticator code, so these steps are manual. Nothing in this repository stores
+> credentials. Points marked "to check" are not confirmed from the docs.
 
 ## 1. First login (once)
 
@@ -19,7 +18,7 @@ Official documentation: https://docs-research-it.berkeley.edu/services/high-perf
    sacctmgr -p show associations user=$USER     # to check: lists accounts / partitions / QoS
    sinfo -s                                     # available partitions
    ```
-   Write down the `ACCOUNT` (e.g. `fc_xxx`): it replaces `<ACCOUNT>` in the `.sbatch` scripts.
+   The `ACCOUNT` (e.g. `fc_xxx`) goes in the `--account` line of the `.sbatch` scripts.
 
 ## 2. Login without a password (optional, 12-hour certificate)
 
@@ -37,7 +36,7 @@ Host savio
     IdentityFile //wsl$/Ubuntu/home/<wsl_user>/.ssh/ssh_certs/brc_cert
     IdentitiesOnly yes
 ```
-After that, `ssh savio` works. The certificate expires after 12 hours; run `request_cert.sh` again to get a new one.
+Then `ssh savio` works until the certificate expires (12 hours).
 
 ## 3. Install the environment on Savio (once)
 
@@ -59,8 +58,8 @@ sbatch --array=0-134 cluster/job_array.sbatch configs/sweep.yaml  # the experime
 squeue -u $USER                                                    # check your jobs
 ```
 
-The workload here (JSBSim, models of ~100 k parameters) is mostly CPU, so the HTC partitions (`savio3_htc`,
-`savio4_htc`, allocated per core) fit well. A GPU isn't required.
+The workload (JSBSim, models of ~100 k parameters) is mostly CPU, so the HTC partitions (`savio3_htc`, `savio4_htc`)
+fit. No GPU needed.
 
 ## 5. Getting results back
 
@@ -71,8 +70,8 @@ scp -r <savio_login>@dtn.brc.berkeley.edu:/global/scratch/users/<savio_login>/Wi
 
 ## My configuration (checked Oct 15, 2026)
 
-- Login `clementdumeril`, Slurm account `ic_piml` (the course's instructional computing allocation).
+- Login `<savio_login>`, Slurm account `<slurm_account>` (the course's instructional computing allocation).
 - CPU: `savio3_htc`, `savio4_htc` (QoS `savio_normal`, `savio_debug`). The scripts default to `savio4_htc`.
 - GPU if needed: `savio3_gpu` (QoS `a40_gpu3_ica`, `v100_gpu3_ica`, `gtx2080_gpu3_ica`),
   `savio4_gpu` (QoS `a5k_gpu4_ica`).
-- Working directory: `/global/scratch/users/clementdumeril/WingJEPA`.
+- Working directory: `/global/scratch/users/<savio_login>/WingJEPA`.

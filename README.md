@@ -1,8 +1,8 @@
 # WingJEPA
 
-Where should physics enter a latent world model? This project compares JEPA-style dynamics models for fixed-wing flight when the physical model they are given is wrong.
+Where should physics enter a latent world model? I compare JEPA-style dynamics models for fixed-wing flight when the physical model they are given is wrong.
 
-It is an independent project for *Physics-Inspired Machine Learning* (UC Berkeley, Fall 2026), inspired by SkyJEPA (Rao et al., arXiv 2606.23444). I am not affiliated with the SkyJEPA authors.
+Independent project for *Physics-Inspired Machine Learning* (UC Berkeley, Fall 2026), inspired by SkyJEPA (Rao et al., arXiv 2606.23444). I am not affiliated with the SkyJEPA authors.
 
 ## Question
 
@@ -16,7 +16,7 @@ Does building an imperfect physical model into a latent dynamics architecture ge
 | C | architecture (physics-based latent decoder + learned residual) |
 | D | architecture + energy structure (port-Hamiltonian decoder) |
 
-The ground truth comes from JSBSim (nonlinear aerodynamics). The prior is a simplified linear longitudinal aerodynamic model at three levels of misspecification. As a real-flight check I plan to use the NTNU Skywalker X8 dataset (doi:10.18710/NNHVBP).
+Ground truth comes from JSBSim. The prior is a linear longitudinal aerodynamic model at three levels of misspecification. The real-flight check will use the NTNU Skywalker X8 dataset (doi:10.18710/NNHVBP).
 
 ## Layout
 
@@ -30,8 +30,6 @@ tests/        unit tests
 ```
 
 ## Setup (local, Windows)
-
-The environment and the data live outside OneDrive.
 
 ```bash
 python -m venv C:/Users/admin/venvs/wingjepa

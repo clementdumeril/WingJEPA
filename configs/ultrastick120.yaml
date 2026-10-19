@@ -9,7 +9,10 @@ aero_model: faser_tables
 aero_file: third_party/umn/FASER_Aero.mat
 
 mass: 6.804                    # kg, FASER_config.m (15 lb, avionique comprise)
-Iyy: 0.889416574               # kg m2
+Ixx: 0.672485702               # kg m2
+Iyy: 0.889416574
+Izz: 1.57817209
+Ixz: -0.759258051              # matrice d'inertie [[Ixx 0 -Ixz] [0 Iyy 0] [-Ixz 0 Izz]] (convention UMN)
 c: 0.433578                    # m, corde moyenne
 b: 1.917192                    # m
 S: 0.769237171                 # m2
@@ -26,11 +29,13 @@ omega_max: 1570.796            # rad/s (15 000 tr/min)
 omega_min: 1.0
 Jmp: 0.00012991                # kg m2, moteur + hélice
 
-# gouverne de profondeur : 1er ordre w/(s+w), w = 2 pi BW, vitesse et débattement limités
-elev_bw_hz: 8.0
-elev_rate_max: 2.618           # rad/s (150 deg/s)
-elev_max: 0.4363               # rad (25 deg), positif = bord de fuite vers le bas (piqueur)
-elev_min: -0.4363
+# gouvernes [profondeur, ailerons, direction] : 1er ordre w/(s+w), w = 2 pi BW, vitesse et débattement
+# limités (Actuator_Lib.mdl). Conventions UMN : profondeur +TED (piqueur), ailerons (da_d - da_g)/2 +TED,
+# direction +TEL.
+act_bw_hz: 8.0
+act_rate_max: 2.618            # rad/s (150 deg/s)
+act_max: [0.4363, 0.4363, 0.4363]     # rad (25 deg)
+act_min: [-0.4363, -0.4363, -0.4363]
 
 # effet du souffle de l'hélice sur les tables (rapport d'avance J) :
 #   "actual"  : J calculé à partir de la vitesse de l'hélice (utilisé pour générer les données)

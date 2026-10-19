@@ -6,14 +6,20 @@ aircraft: ultrastick25e
 aero_model: linear_25e
 
 mass: 1.9
+Ixx: 0.0894
 Iyy: 0.1444
+Izz: 0.162
+Ixz: 0.014
 c: 0.25
 b: 1.27
 S: 0.3097
 
 CL: {zero: 0.1086, alpha: 4.58, delev: 0.0983, q: 6.1639, minD: 0.23}
-CDw: {min: 0.0434, delev: 0.0135, osw: 0.75}
+CDw: {min: 0.0434, delev: 0.0135, dail: 0.0302, drud: 0.0303, osw: 0.75}
 Cm: {zero: -0.0278, alpha: -0.723, delev: -0.8488, q: -13.5664}
+CYw: {beta: -0.4889, dail: 0.0, drud: 0.1913, p: -0.0375, r: 0.15}
+Cl: {beta: -0.0545, dail: -0.1646, drud: 0.0115, p: -0.4496, r: 0.1086}
+Cn: {beta: 0.0723, dail: 0.0574, drud: -0.1811, p: 0.118, r: -0.1833}
 
 prop_radius: 0.1524
 prop_CT: [-0.4314, 1.08, -0.896, 0.1089, 0.0604]
@@ -24,9 +30,9 @@ omega_max: 1256.0
 omega_min: 1.0
 Jmp: 0.00012991
 
-elev_bw_hz: 8.0
-elev_rate_max: 2.618
-elev_max: 0.4363
-elev_min: -0.4363
+act_bw_hz: 8.0
+act_rate_max: 2.618
+act_max: [0.4363, 0.4363, 0.4363]
+act_min: [-0.4363, -0.4363, -0.4363]
 j_mode: actual
 g: 9.80665

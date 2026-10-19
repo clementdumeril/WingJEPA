@@ -32,7 +32,8 @@ avec la régularisation anti-effondrement **SIGReg** de LeJEPA. Pas d'images dan
 
 ## 3. Entrées, sorties, notations
 
-Pas de temps $\Delta t = 0{,}05$ s (20 Hz). Dynamique **longitudinale**.
+Pas de temps $\Delta t = 0{,}05$ s (20 Hz). Les données sont en **6 degrés de liberté** (virages compris) ;
+les modèles commencent par la dynamique **longitudinale** (ci-dessous), puis passent au 6DoF sur les mêmes données.
 
 - **État physique** $x = (u, w, q, \theta, h)$ : vitesses dans le repère avion (sol), vitesse de tangage,
   assiette, altitude.

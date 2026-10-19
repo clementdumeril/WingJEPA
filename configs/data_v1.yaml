@@ -1,4 +1,4 @@
-# Dataset data_v1 — décisions : docs/phase1_decisions.md
+# Dataset data_v1 (6 degrés de liberté) — décisions : docs/phase1_decisions.md
 name: data_v1
 seed: 20261019
 out_dir: /global/scratch/users/clementdumeril/WingJEPA/data
@@ -14,24 +14,28 @@ sim:
   dt_record: 0.05               # enregistrement et commandes (20 Hz)
   warmup_s: 10                  # mise en équilibre sous autopilote, non enregistrée
   h0_range: [150, 300]          # m
-  limits: {Va_min: 5.0, Va_max: 45.0, alpha_max_deg: 35, alpha_min_deg: -10, theta_max_deg: 80, h_min: 20}
+  # sortie d'enveloppe = perte de contrôle ou hors du domaine de validité (tables NASA : alpha <= 40,
+  # |beta| <= 30 deg ; en dessous de -5 deg, prolongement linéaire des tables, plausible jusqu'à -15 deg) :
+  # le vol est figé sur son dernier état valide
+  limits: {Va_min: 5.0, Va_max: 45.0, alpha_max_deg: 35, alpha_min_deg: -15, beta_max_deg: 25,
+           phi_max_deg: 75, theta_max_deg: 80, h_min: 20}
 
 aircraft:
   config: configs/ultrastick120.yaml   # Ultra Stick 120, tables NASA (scripts/fetch_umn.sh)
   ranges:                       # [entraînement, limite des avions de test]
     mass: [0.20, 0.35]
-    Iyy: [0.30, 0.45]
-    aero: [0.20, 0.30]          # facteurs sur CD, CL, Cm totaux, indépendamment
+    inertia: [0.30, 0.45]       # Ixx, Iyy, Izz indépendamment (Ixz suit pour rester défini positif)
+    aero: [0.20, 0.30]          # facteurs sur CD, CY, CL, Cl, Cm, Cn, indépendamment
     motor: [0.30, 0.45]         # puissance du moteur
     cg_shift: [0.03, 0.05]      # fraction de corde
 
 wind:
-  steady_horizontal_max: 10.0   # m/s, dans l'axe de vol (ne fait que déplacer l'avion)
+  steady_horizontal_max: 10.0   # m/s, direction aléatoire (ne fait que déplacer l'avion)
   steady_vertical_max: 1.5      # m/s, ascendance ou descendance
   turbulence_probs: {none: 0.25, light: 0.35, moderate: 0.25, severe: 0.15}
   gust_rate_per_min: 3
   gust_duration_s: [1.0, 5.0]
-  gust_amplitude_max: 3.0       # m/s, rafale (1 - cos) horizontale et verticale
+  gust_amplitude_max: 3.0       # m/s par axe, rafale (1 - cos)
   estimate_tau_s: 2.0           # vent estimé : passe-bas
   estimate_bias_sigma: 0.5      # m/s, biais lent de l'estimateur
   estimate_bias_T_s: 20.0
@@ -44,16 +48,40 @@ pilot:
   exc_width_s: [0.3, 1.0]       # durée d'une unité de la manœuvre multi-échelons
   exc_elev_deg: [1.0, 4.0]
   exc_thr: [0.1, 0.3]
+  exc_ail_deg: [1.0, 3.5]
+  exc_rud_deg: [1.0, 3.5]
   exc_free_s: 2.0               # boucle ouverte prolongée après la manœuvre
   exc_gap_s: [3.0, 8.0]
   rand_tau_s: [0.3, 2.0]
   rand_elev_deg: [1.0, 3.0]
   rand_thr: [0.1, 0.3]
+  rand_ail_deg: [0.5, 2.5]
+  rand_rud_deg: [0.5, 2.5]
   rand_openloop_per_min: 4
   rand_openloop_s: [1.0, 4.0]
   engine_off_prob: 0.5
   engine_off_per_min: 2
   engine_off_s: [5.0, 15.0]
+  lateral:
+    mode_probs: [0.3, 0.35, 0.35]   # ligne droite, virages et cercles, virages en S
+    turn_hold_s: [4.0, 15.0]
+    bank_deg: [10.0, 40.0]
+    s_bank_deg: [15.0, 35.0]
+    s_period_s: [10.0, 30.0]
+    bank_min_lim_deg: 15.0      # inclinaison max à 15 m/s, croissant jusqu'à bank_deg[1] à 23 m/s
+    gains: {k_phi: 0.8, k_p: 0.15, k_r: 0.3, k_beta: 1.5}
+  protection:                   # comme une protection d'enveloppe d'autopilote
+    V_min: 13.0                 # m/s
+    V_max: 33.0                 # survitesse (piqué)
+    alpha_max_deg: 12.0         # décrochage vers 12,5 deg
+    alpha_min_deg: -5.0         # incidence négative (bord des tables NASA)
+    phi_max_deg: 60.0
+    theta_max_deg: 45.0         # piqué ou ressource excessifs
+    beta_max_deg: 20.0          # tables NASA jusqu'à 30 deg
+    h_min: 60.0                 # m, proximité du sol
+    filter_tau_s: 0.5           # lissage des données air utilisées par la protection
+    hold_s: 3.0                 # durée de la reprise en main
+    V_target: 20.0              # vitesse visée pendant la reprise
   tecs:
     k_h: 0.04
     gamma_max: 0.15
@@ -74,3 +102,6 @@ pilot:
     theta_cmd_max: 0.4
     k_th: 0.6
     k_q: 0.15
+    alpha_floor_deg: -4.0       # limiteur d'incidence (incidence filtrée)
+    alpha_ceil_deg: 11.0
+    k_alpha: 1.0

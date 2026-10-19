@@ -28,8 +28,10 @@ entrées des tables NASA (converties dans `wingjepa/sim/ultrastick.py`).
 | $\delta_t$ | moteur | sans unité, $[0, 1]$ | 0 = coupé |
 | $w_N, w_D$ | vent, repère inertiel (horizontal dans l'axe de vol, vertical) | m/s | $w_D > 0$ = **descendant** ; ascendance = $w_D < 0$ |
 
-Ultra Stick 120 (tables NASA) : profondeur positive = bord de fuite vers le bas (+TED, convention UMN),
-moment piqueur ; débattement ±25°.
+Ultra Stick 120 (convention UMN) : profondeur positive = bord de fuite vers le bas (piqueur) ;
+ailerons da = (da_droit − da_gauche)/2, positif = roulis à gauche ; direction positive = bord de fuite
+à gauche (lacet à gauche) ; débattements ±25°. Angles d'Euler phi (roulis, aile droite basse positive),
+theta, psi (cap). Dérapage beta = asin(v / Va), positif = vent relatif venant de la droite.
 
 ## Temps
 
@@ -41,13 +43,14 @@ moment piqueur ; débattement ±25°.
 
 - Un fichier `.npz` par lot de vols + un `meta.json` par lot.
 - Par vol, séries temporelles alignées (longueur N) :
-  - état : `u, w, q, theta, h`, `x` (distance) ; dérivées : `Va, alpha, gamma_a, e_spec` ;
-  - commandes : `delta_e_cmd, delta_t_cmd` ; position de la gouverne `delta_e` ; hélice `omega_rpm, J` ;
-  - vent : `wind_x, wind_d` (moyen + rafales, inertiel), `turb_u, turb_w` (turbulence, axes avion),
-    `wind_x_est, wind_d_est` (estimé) ;
-  - vérité : `Fx_aero, Fz_aero, My_aero, lift, drag, CL, CD, Cm, thrust`, puissance `P_motor, P_shaft`,
-    énergie `E_motor` ;
-  - indicateurs : `engine_off, open_loop, alive`.
+  - état 6DoF : `u, v, w` (axes avion, par rapport à la masse d'air moyenne), `p, q, r`, `phi, theta, psi`,
+    `north, east, h` ; air : `Va, alpha, beta, gamma_a, e_spec` ;
+  - commandes : `de_cmd, da_cmd, dr_cmd, dt_cmd` ; positions des gouvernes `de, da, dr` ; hélice `omega_rpm, J` ;
+  - vent : `wind_n, wind_e, wind_d` (moyen + rafales, NED), `turb_u, turb_v, turb_w` (turbulence, axes avion),
+    `wind_n_est, wind_e_est, wind_d_est` (estimé) ;
+  - vérité : forces et moments aéro `Fx/Fy/Fz_aero, Mx/My/Mz_aero`, moments de l'hélice `Mx/My/Mz_prop`,
+    `lift, drag, side, CD, CY, CL, Cl, Cm, Cn, thrust`, puissance `P_motor, P_shaft`, énergie `E_motor` ;
+  - pilote : `phi_ref` ; indicateurs `engine_off, open_loop, protect, alive`.
   Liste exacte : `CHANNELS` dans `scripts/generate_flights.py`.
 - Par vol, métadonnées : paramètres de l'avion tirés (masse, inertie, centrage, coefficients),
   paramètres du vent et de la turbulence, type de manœuvre, graine aléatoire.

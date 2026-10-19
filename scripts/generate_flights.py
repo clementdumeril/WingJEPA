@@ -61,6 +61,11 @@ def simulate(rng, n, duration, n_test, cfg):
     h0 = rng.uniform(*sim["h0_range"], n)
     V0 = rng.uniform(*pil["V_range"], n)
     Y, de0, thr0, trim_ok = ac.trim(V0, h=h0)
+    if not trim_ok.all():   # avion impossible à équilibrer à V0 (ex. trop peu de puissance) : on réessaie à 18 m/s
+        V0 = np.where(trim_ok, V0, 18.0)
+        Y2, de2, thr2, ok2 = ac.trim(V0, h=h0)
+        Y, de0, thr0 = np.where(trim_ok[:, None], Y, Y2), np.where(trim_ok, de0, de2), np.where(trim_ok, thr0, thr2)
+        trim_ok = trim_ok | ok2
     wind = Wind(rng, n, cfg["wind"], sim["warmup_s"] + duration)
 
     prof = make_profiles(rng, n, K, dt_ctrl, pil, h0, V0)

@@ -194,9 +194,17 @@ class UltraStick:
             Jm = np.empty((n, 4, 4))
             eps = np.array([1e-5, 1e-5, 1e-5, 1e-2])
             for k in range(4):
-                xk = x.copy(); xk[:, k] += eps[k]
-                Jm[:, :, k] = (residual(xk)[0] - r) / eps[k]
-            dx = np.linalg.solve(Jm, -r[..., None])[..., 0]
+                step = np.full(n, eps[k])
+                if k == 2:                          # gaz en butée haute : différence vers le bas
+                    step = np.where(x[:, 2] + eps[2] > 1.0, -eps[2], eps[2])
+                xk = x.copy()
+                xk[:, k] += step
+                Jm[:, :, k] = (residual(xk)[0] - r) / step[:, None]
+            # Levenberg-Marquardt : jamais singulier (un avion impossible à équilibrer reste ok = False)
+            JT = np.swapaxes(Jm, 1, 2)
+            JTJ = JT @ Jm
+            A = JTJ + 1e-6 * np.eye(4) * np.diagonal(JTJ, axis1=1, axis2=2)[:, None, :] + 1e-12 * np.eye(4)
+            dx = np.linalg.solve(A, -(JT @ r[..., None]))[..., 0]
             x = x + np.clip(dx, [-0.05, -0.05, -0.1, -100], [0.05, 0.05, 0.1, 100])
             x[:, 2] = np.clip(x[:, 2], 0, 1)
         r, Y = residual(x)

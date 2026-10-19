@@ -42,7 +42,8 @@ def main():
     print(f"== {a.set} : {n} vols x {K} pas ({K * dt:.0f} s, dt = {dt} s)")
 
     # 1. validité
-    print(f"[1] valeurs non finies : {int((~np.isfinite(D)).sum())}")
+    print(f"[1] valeurs non finies : {int((~np.isfinite(D)).sum())} (dont dans la partie valide des vols : "
+          f"{int((~np.isfinite(D[alive])).sum())})")
     print(f"[1] vols restés dans l'enveloppe : {ok.sum()}/{n}")
     for i, name in enumerate(TYPE_NAMES):
         m = M["type"] == i
@@ -70,6 +71,7 @@ def main():
 
     # 3. bilan d'énergie (exact pour ces équations) : dE/dt = (Fx_aero + T) u + Fz_aero w + My q,
     #    avec E = 1/2 m (u^2 + w^2) + 1/2 Iyy q^2 + m g h_air, h_air = h + w_d moyen * t
+    np.seterr(all="ignore")   # les vols sortis de l'enveloppe sont exclus des statistiques ci-dessous
     m, Iyy = M["mass"][:, None], M["Iyy"][:, None]
     h_air = c["h"] + M["wind_steady_d"][:, None] * c["t"]
     E = 0.5 * m * (c["u"]**2 + c["w"]**2) + 0.5 * Iyy * c["q"]**2 + m * G * h_air

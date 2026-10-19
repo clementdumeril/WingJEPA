@@ -122,19 +122,19 @@ def simulate(rng, n, duration, n_test, cfg):
             ug, wg, wx, wd = unsteady(Y, t)
             wx_est, wd_est = wind.step_estimate(wx, wd, dt_sim)
             Yn = ac.step(Y, cmd_e, cmd_t, ug, wg, wind.steady_x, wind.steady_d, dt_sim)
-            diverged = alive & ~np.isfinite(Yn).all(1)
-            t_dead[diverged] = t - sim["warmup_s"]
-            alive &= ~diverged
-            Y = np.where(alive[:, None], Yn, Y)            # un vol sorti de l'enveloppe est figé
+            # enveloppe vérifiée à chaque pas d'intégration : un vol qui en sort est figé sur son
+            # dernier état valide (sinon il peut diverger avant le contrôle suivant)
+            with np.errstate(all="ignore"):
+                Va_n = np.hypot(Yn[:, U] - ug, Yn[:, W] - wg)
+                a_n = np.arctan2(Yn[:, W] - wg, Yn[:, U] - ug)
+                bad = (~np.isfinite(Yn).all(1) | (Va_n < lim["Va_min"]) | (Va_n > lim["Va_max"])
+                       | (a_n > np.deg2rad(lim["alpha_max_deg"])) | (a_n < np.deg2rad(lim["alpha_min_deg"]))
+                       | (np.abs(Yn[:, TH]) > np.deg2rad(lim["theta_max_deg"])) | (Yn[:, H] < lim["h_min"]))
+            t_dead[bad & alive] = t - sim["warmup_s"]
+            alive &= ~bad
+            Y = np.where(alive[:, None], Yn, Y)
             t += dt_sim
         E_motor += np.where(alive, F["P_motor"] * dt_ctrl, 0.0)
-
-        Fa = ac.forces(Y, cmd_t, ug, wg)
-        bad = (~np.isfinite(Y).all(1) | (Fa["Va"] < lim["Va_min"]) | (Fa["Va"] > lim["Va_max"])
-               | (Fa["alpha"] > np.deg2rad(lim["alpha_max_deg"])) | (Fa["alpha"] < np.deg2rad(lim["alpha_min_deg"]))
-               | (np.abs(Y[:, TH]) > np.deg2rad(lim["theta_max_deg"])) | (Y[:, H] < lim["h_min"]))
-        t_dead[bad & alive] = t - sim["warmup_s"]
-        alive &= ~bad
 
     meta = dict(type=prof["types"], is_test_aircraft=is_test, h0=h0, V0=V0, trim_ok=trim_ok,
                 mass=ov["mass"], Iyy=ov["Iyy"], power_scale=ov["power_scale"], cg_shift=ov["cg_shift"],

@@ -16,7 +16,7 @@ Does building an imperfect physical model into a latent dynamics architecture ge
 | C | architecture (physics-based latent decoder + learned residual) |
 | D | architecture + energy structure (port-Hamiltonian decoder) |
 
-Ground truth comes from JSBSim. The prior is a linear longitudinal aerodynamic model at three levels of misspecification. The real-flight check will use the NTNU Skywalker X8 dataset (doi:10.18710/NNHVBP).
+Ground truth comes from the Ultra Stick 120 simulator of the University of Minnesota UAV Lab, translated to Python (NASA Langley wind-tunnel tables, nonlinear, with stall). The prior is a linear longitudinal aerodynamic model at three levels of misspecification. The real-flight check will use public flight data of the same airframe (UMN Baldr and FASER flights).
 
 ## Layout
 
@@ -44,5 +44,5 @@ For the cluster, see [cluster/README.md](cluster/README.md).
 - [ ] Phase 1: longitudinal data generation
 - [ ] Phase 2: models A, B, C0, C, D
 - [ ] Phase 3: experiments on Savio
-- [ ] Phase 4: analysis and X8 real-flight check
+- [ ] Phase 4: analysis and real-flight check (Ultra Stick 120 flights)
 - [ ] Phase 5: report and presentation

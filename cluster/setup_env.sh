@@ -14,4 +14,5 @@ python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -e ".[dev]"
 python -c "import jsbsim, torch; print('jsbsim', jsbsim.__version__, '| torch', torch.__version__)"
 mkdir -p runs/slurm   # Slurm ouvre le fichier de sortie avant le script : le dossier doit exister
+bash scripts/fetch_umn.sh   # tables NASA de l'Ultra Stick 120 (simulateur UMN), depuis le nœud de connexion
 echo "Environnement prêt : source $ENV_DIR/bin/activate"

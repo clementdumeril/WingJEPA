@@ -1,0 +1,76 @@
+# Dataset data_v1 — décisions : docs/phase1_decisions.md
+name: data_v1
+seed: 20261019
+out_dir: /global/scratch/users/clementdumeril/WingJEPA/data
+split: [0.8, 0.1, 0.1]          # train / val / test, tirés par vol (set "train" seulement)
+
+sets:
+  smoke:     {n_flights: 40,   duration_s: 30,  test_aircraft_fraction: 0.0}   # test rapide
+  train:     {n_flights: 2000, duration_s: 30,  test_aircraft_fraction: 0.0}
+  test_long: {n_flights: 200,  duration_s: 120, test_aircraft_fraction: 0.5}
+
+sim:
+  dt: 0.01                      # pas RK4 (100 Hz)
+  dt_record: 0.05               # enregistrement et commandes (20 Hz)
+  warmup_s: 10                  # mise en équilibre sous autopilote, non enregistrée
+  h0_range: [150, 300]          # m
+  limits: {Va_min: 5.0, Va_max: 45.0, alpha_max_deg: 35, alpha_min_deg: -10, theta_max_deg: 80, h_min: 20}
+
+aircraft:
+  config: configs/ultrastick120.yaml   # Ultra Stick 120, tables NASA (scripts/fetch_umn.sh)
+  ranges:                       # [entraînement, limite des avions de test]
+    mass: [0.20, 0.35]
+    Iyy: [0.30, 0.45]
+    aero: [0.20, 0.30]          # facteurs sur CD, CL, Cm totaux, indépendamment
+    motor: [0.30, 0.45]         # puissance du moteur
+    cg_shift: [0.03, 0.05]      # fraction de corde
+
+wind:
+  steady_horizontal_max: 10.0   # m/s, dans l'axe de vol (ne fait que déplacer l'avion)
+  steady_vertical_max: 1.5      # m/s, ascendance ou descendance
+  turbulence_probs: {none: 0.25, light: 0.35, moderate: 0.25, severe: 0.15}
+  gust_rate_per_min: 3
+  gust_duration_s: [1.0, 5.0]
+  gust_amplitude_max: 3.0       # m/s, rafale (1 - cos) horizontale et verticale
+  estimate_tau_s: 2.0           # vent estimé : passe-bas
+  estimate_bias_sigma: 0.5      # m/s, biais lent de l'estimateur
+  estimate_bias_T_s: 20.0
+
+pilot:
+  type_probs: [0.15, 0.30, 0.30, 0.25]   # stabilisé, excitation, consignes TECS, aléatoire
+  V_range: [15.0, 28.0]         # décrochage vers 12 m/s
+  ref_hold_s: [4.0, 12.0]
+  ref_dh_max: 40.0
+  exc_width_s: [0.3, 1.0]       # durée d'une unité de la manœuvre multi-échelons
+  exc_elev_deg: [1.0, 4.0]
+  exc_thr: [0.1, 0.3]
+  exc_free_s: 2.0               # boucle ouverte prolongée après la manœuvre
+  exc_gap_s: [3.0, 8.0]
+  rand_tau_s: [0.3, 2.0]
+  rand_elev_deg: [1.0, 3.0]
+  rand_thr: [0.1, 0.3]
+  rand_openloop_per_min: 4
+  rand_openloop_s: [1.0, 4.0]
+  engine_off_prob: 0.5
+  engine_off_per_min: 2
+  engine_off_s: [5.0, 15.0]
+  tecs:
+    k_h: 0.04
+    gamma_max: 0.15
+    k_V: 0.5
+    vdot_max: 1.0
+    vdot_tau: 0.3
+    thr_0: 0.4
+    k_TP: 1.0
+    k_TI: 0.3
+    I_T_max: 0.5
+    theta_0: 0.05
+    k_DP: 0.8
+    k_DI: 0.2
+    I_D_max: 0.3
+    theta_glide_0: -0.04
+    k_GP: 0.05
+    k_GI: 0.02
+    theta_cmd_max: 0.4
+    k_th: 0.6
+    k_q: 0.15

@@ -1,0 +1,32 @@
+# Ultra Stick 25e (University of Minnesota) — sert UNIQUEMENT à valider notre traduction des équations
+# (mouvement, propulsion) contre la trajectoire de référence de leur simulateur non linéaire
+# (Simulation/NL_Sim/Verification/doublet_longmodel.mat). Valeurs : UAV_modelconfig.mat / Ultrastick_config.m.
+
+aircraft: ultrastick25e
+aero_model: linear_25e
+
+mass: 1.9
+Iyy: 0.1444
+c: 0.25
+b: 1.27
+S: 0.3097
+
+CL: {zero: 0.1086, alpha: 4.58, delev: 0.0983, q: 6.1639, minD: 0.23}
+CDw: {min: 0.0434, delev: 0.0135, osw: 0.75}
+Cm: {zero: -0.0278, alpha: -0.723, delev: -0.8488, q: -13.5664}
+
+prop_radius: 0.1524
+prop_CT: [-0.4314, 1.08, -0.896, 0.1089, 0.0604]
+prop_CP: [0.5054, -0.5304, 0.0412, 0.01664, 0.0223]
+motor_power: [174.46, 70.135, -4.39]
+motor_power_max: 400.0
+omega_max: 1256.0
+omega_min: 1.0
+Jmp: 0.00012991
+
+elev_bw_hz: 8.0
+elev_rate_max: 2.618
+elev_max: 0.4363
+elev_min: -0.4363
+j_mode: actual
+g: 9.80665

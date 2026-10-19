@@ -1,0 +1,40 @@
+# Ultra Stick 120 (FASER, University of Minnesota UAV Lab) — avion de base du simulateur de vérité.
+# Transcrit de UMNUAV_sim_v4 (BSD, (c) 2011 Regents of the University of Minnesota) :
+#   Simulation/Libraries/FASER_config.m, Propulsion_Lib.mdl, Actuator_Lib.mdl, FASER_Aero_Lib.mdl.
+# Aéro : tables de soufflerie NASA Langley, FASER_Aero.mat (récupéré par scripts/fetch_umn.sh).
+# SI, radians sauf mention contraire.
+
+aircraft: ultrastick120
+aero_model: faser_tables
+aero_file: third_party/umn/FASER_Aero.mat
+
+mass: 6.804                    # kg, FASER_config.m (15 lb, avionique comprise)
+Iyy: 0.889416574               # kg m2
+c: 0.433578                    # m, corde moyenne
+b: 1.917192                    # m
+S: 0.769237171                 # m2
+# CG = centre aérodynamique (quart de corde) et poussée dans l'axe x : pas de bras de levier en tangage.
+
+# propulsion (FASER_config.m ; la bibliothèque Simulink code en dur les polynômes du 25e,
+# on suit les valeurs déclarées pour FASER : rayon 0,1778 m et puissance x6)
+prop_radius: 0.1778            # m
+prop_CT: [-0.4314, 1.08, -0.896, 0.1089, 0.0604]      # polynôme en J, ordre décroissant (polyval)
+prop_CP: [0.5054, -0.5304, 0.0412, 0.01664, 0.0223]
+motor_power: [1046.76, 420.81, -26.34]               # W, polynôme du gaz (= [174.46 70.135 -4.39] x 6)
+motor_power_max: 1900.0        # W, ThrottleOutputLimit.Upper
+omega_max: 1570.796            # rad/s (15 000 tr/min)
+omega_min: 1.0
+Jmp: 0.00012991                # kg m2, moteur + hélice
+
+# gouverne de profondeur : 1er ordre w/(s+w), w = 2 pi BW, vitesse et débattement limités
+elev_bw_hz: 8.0
+elev_rate_max: 2.618           # rad/s (150 deg/s)
+elev_max: 0.4363               # rad (25 deg), positif = bord de fuite vers le bas (piqueur)
+elev_min: -0.4363
+
+# effet du souffle de l'hélice sur les tables (rapport d'avance J) :
+#   "actual"  : J calculé à partir de la vitesse de l'hélice (utilisé pour générer les données)
+#   "umn_v4"  : comme UMNUAV_sim_v4 tel quel (constante 1, saturée au maximum des tables, 0,7)
+j_mode: actual
+
+g: 9.80665

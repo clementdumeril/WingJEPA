@@ -216,3 +216,28 @@ dataset (on le reboucle avec les vraies forces enregistrées).
   coup à partir des trajectoires enregistrées** (rendu synthétique de l'horizon et du sol, ou FlightGear). Seul l'encodeur change ; question : la tête physique aide-t-elle encore quand l'état
   doit être extrait des pixels ?
 - Vrais vols d'un autre avion (Skywalker X8, NTNU), dynamique 6-DoF, adaptation en ligne au vent.
+
+---
+
+## 10. Modèle A tel qu'implémenté (20 oct. 2026)
+
+Code : `wingjepa/data/windows.py`, `wingjepa/models/jepa.py`, `scripts/train_a.py`, `scripts/evaluate.py`.
+
+- **Entrées par pas (20 Hz)** : état (Va, alpha, beta, p, q, r, phi, theta, vitesse verticale), commandes
+  (profondeur, ailerons, direction, gaz), vent estimé exprimé par rapport au cap (dans l'axe, travers,
+  vertical). Ni cap ni position (invariance) ; altitude = intégrale de la vitesse verticale.
+- **Encodeur** : TCN causal, k = 3, dilatations 1, 2, 4, canaux 16/16/32, résiduel, z = 32. Il ne voit que
+  les **états** (comme SkyJEPA) : sur un essai, avec commandes et vent en entrée, le latent encodait surtout
+  ces signaux lents et faciles à prédire (raccourci) et perdait la dynamique.
+- **Prédicteur** : GRU (état 32) ; entrées par pas : commandes réellement appliquées + dernier vent estimé
+  tenu constant.
+- **Décodeur** : MLP 32-64-64-9. Environ 15 500 paramètres au total.
+- **Étape 1 (JEPA)** : erreur quadratique entre latents prédits et latents cibles (même encodeur sur les
+  vraies fenêtres, sans stop-gradient) sur 20 pas + 0,02 x SIGReg sur les latents prédits (estimé sur 4 pas
+  tirés au hasard et 128 projections, pour le coût de calcul). Sélection sur l'erreur de prédiction
+  normalisée par la dispersion des latents (indépendante du lot, pénalise l'effondrement).
+- **Étape 2** : décodeur seul, encodeur et prédicteur figés, erreur sur l'état (variables normalisées).
+- **A0** : même réseau entraîné d'un bloc sur l'erreur d'état (prédiction directe, pas de JEPA).
+- **Évaluation** : boucle ouverte depuis 0,5 s de passé réel, 25 s (vols de test) ou 60 s (vols longs) ;
+  RMS à 1, 5, 20, 60 s ; horizon utile (5 m, 1 m/s, 10 deg) ; référence « rien ne change ».
+  À rediscuter : le seuil de 1 m/s est du même ordre que les fluctuations de vitesse dues à la turbulence.

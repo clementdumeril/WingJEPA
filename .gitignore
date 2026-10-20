@@ -4,8 +4,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 # Données et résultats volumineux : hors du dépôt
-data/
-runs/
+/data/
+/runs/
 *.pt
 *.npz
 *.h5

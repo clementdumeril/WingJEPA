@@ -114,3 +114,38 @@ Erreur d'altitude à 60 s (moins = mieux) :
 - 3 graines pour A0 5 s et JEPA 5 s.
 - Concevoir le modèle C (décodeur physique : équations du mouvement + correction apprise).
 - Vérifier pourquoi le vent est ignoré.
+
+## 9. Diagnostic des modèles (21 oct. 2026, `scripts/diagnose.py`, une graine)
+
+**Q1. Pourquoi A0 est meilleur à court terme que JEPA ?**
+- Sonde (état présent relu dans le latent z(t), 0 = parfait, 1 = rien) : A0 <= 0,02 partout ; JEPA
+  bon sur Va, phi, theta, vitesse verticale (0,01-0,02), moyen sur alpha, p, q (0,05-0,09), r (0,13),
+  **mauvais sur le dérapage beta (0,46)** ; joint entre les deux (beta 0,28).
+- Dès 0,25 s, l'erreur de JEPA est 2 à 4 fois celle d'A0 (ex. phi 0,21 contre 0,05), bien au-dessus de
+  ce que la sonde perd : la perte vient surtout du **prédicteur**, entraîné à bien prédire le latent, pas
+  l'état.
+- Explication : (1) JEPA optimise une erreur dans le latent, A0 optimise directement l'erreur sur l'état
+  qu'on mesure ; (2) JEPA garde ce qui est prévisible et jette le reste : le dérapage, très agité par la
+  turbulence, est en partie jeté.
+
+**Q2. Pourquoi JEPA est « meilleur » sur l'altitude à long terme ?**
+- Nouvelle référence « altitude constante » : **36 m à 60 s, meilleure que tous les modèles** (A0 150 m,
+  JEPA 70 m, joint 87 m). Les vols restent autour de leurs consignes d'altitude (pilote automatique), donc
+  l'altitude revient vers sa moyenne. **Aucun modèle ne bat cette référence triviale à 60 s** : le long
+  terme n'est pas résolu.
+- JEPA n'est pas plus « prudent » (dispersion de la vitesse verticale prédite / vraie : 0,92), il est
+  surtout **moins biaisé** (biais -0,26 m/s à 60 s contre -2,47 m/s pour A0, qui dérive vers le bas au-delà
+  des 5 s vus à l'entraînement).
+
+**Q3. Pourquoi aucun modèle ne généralise aux avions extrêmes ?**
+- Corrélations entre horizon utile et écart de chaque paramètre : toutes faibles (|rho| <= 0,13) ; aucun
+  paramètre n'explique seul l'échec (un peu : inertie de roulis, puissance, CL, Cn).
+- Erreurs à 1 s, avions d'entraînement -> de test : c'est surtout le **tangage** qui casse (A0 : q 3,0 ->
+  5,5 deg/s, theta 1,8 -> 3,9 deg, vitesse verticale 0,7 -> 1,2 m/s).
+- Explication : **le modèle ne sait pas sur quel avion il vole**. 0,5 s d'historique est trop court pour
+  « deviner » la masse, l'inertie ou l'aéro. Conséquence pour le modèle C : des équations physiques avec
+  des paramètres nominaux ne connaîtront pas non plus l'avion extrême ; il faudra lui donner l'information
+  (historique plus long pour l'inférer, ou paramètres connus comme la masse en entrée).
+
+**À faire** : ajouter la référence « altitude constante » à l'évaluation ; trancher, pour le modèle C,
+comment le modèle connaît l'avion (historique plus long, paramètres en entrée) ; 3 graines en cours.

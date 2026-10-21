@@ -92,7 +92,8 @@ class PhysicsHead(nn.Module):
     def air_data(x):
         u, v, w = x[:, 0], x[:, 1], x[:, 2]
         Va = torch.sqrt(u * u + v * v + w * w).clamp_min(3.0)
-        return Va, torch.atan2(w, u), torch.asin((v / Va).clamp(-1, 1))
+        # beta = asin(v / Va), écrit avec atan2 : même valeur, mais dérivée finie partout
+        return Va, torch.atan2(w, u), torch.atan2(v, torch.sqrt(u * u + w * w + 1e-6))
 
     def from_features(self, s):
         """État physique (B, 8) depuis les 9 grandeurs NON normalisées."""
@@ -110,6 +111,8 @@ class PhysicsHead(nn.Module):
     # ---------- dynamique
     def derivatives(self, x, ctrl, dC, ac):
         """x (B, 8), ctrl (B, 4) physiques, dC (B, 6) correction, ac (B, 5) masse et inerties."""
+        # bornes aussi aux étapes intermédiaires du RK4 (sinon theta peut y franchir 90 deg : tan infinie)
+        x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         u, v, w, p, q, r, phi, th = x.unbind(-1)
         Va, alpha, beta = self.air_data(x)
         C = self.prior_body(alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va) + dC

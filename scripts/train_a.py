@@ -45,15 +45,19 @@ def lr_at(step, total, peak, warmup, floor):
 
 def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
     opt = torch.optim.Adam(params, lr=a.lr, weight_decay=a.weight_decay)
-    best, t0 = float("inf"), time.time()
+    best, t0, skipped = float("inf"), time.time(), 0
     for step in range(steps):
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, a.lr, a.warmup, a.lr_floor)
         loss, parts = loss_fn(step)
         opt.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(params, a.clip)
-        opt.step()
+        gnorm = torch.nn.utils.clip_grad_norm_(params, a.clip)
+        # un lot à perte ou gradient non fini est sauté : un seul NaN suffirait à détruire les poids
+        if torch.isfinite(loss) and torch.isfinite(gnorm):
+            opt.step()
+        else:
+            skipped += 1
         if step % a.eval_every == 0 or step == steps - 1:
             with torch.no_grad():
                 val = float(val_fn())
@@ -61,7 +65,7 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
                 best = val
                 save_best()
             rec = dict(stage=name, step=step, train=float(loss), val=float(val), best=float(best),
-                       lr=opt.param_groups[0]["lr"], sec=round(time.time() - t0, 1), **parts)
+                       lr=opt.param_groups[0]["lr"], sec=round(time.time() - t0, 1), skipped=skipped, **parts)
             log.append(rec)
             print(json.dumps(rec), flush=True)
     return best

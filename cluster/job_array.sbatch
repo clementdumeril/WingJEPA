@@ -1,8 +1,8 @@
 #!/bin/bash
-# MODÈLE DE JOB, PAS ENCORE UTILISABLE : scripts/train.py et configs/sweep.yaml n'existent pas encore.
-# Principe : un job par configuration d'expérience, choisie par l'index SLURM_ARRAY_TASK_ID.
-# La grille (modèles, priors, tailles de données, graines) sera décidée en phase 2-3.
-# Usage futur : sbatch --array=0-<N-1> cluster/job_array.sbatch configs/sweep.yaml
+# JOB TEMPLATE, NOT USABLE YET: scripts/train.py and configs/sweep.yaml do not exist yet.
+# Principle: one job per experiment configuration, selected by the SLURM_ARRAY_TASK_ID index.
+# The grid (models, priors, data sizes, seeds) will be decided in phase 2-3.
+# Future usage: sbatch --array=0-<N-1> cluster/job_array.sbatch configs/sweep.yaml
 #SBATCH --job-name=wingjepa-sweep
 #SBATCH --account=ic_piml
 #SBATCH --partition=savio4_htc

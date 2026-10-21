@@ -1,7 +1,7 @@
-"""Phase 0 : vol plané stabilisé des planeurs JSBSim, pour plusieurs positions de profondeur.
+"""Phase 0: steady glide of the JSBSim gliders, for several elevator settings.
 
-Pour chaque calage de profondeur, on vole 120 s et on moyenne les 40 dernières secondes :
-vitesse, taux de chute, finesse, et amplitude des oscillations (phugoïde non amortie ?).
+For each elevator setting, fly 120 s and average over the last 40 s:
+speed, sink rate, glide ratio, and oscillation amplitude (undamped phugoid?).
 """
 import numpy as np
 import jsbsim
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         for e in (-0.3, -0.15, -0.05, 0.0, 0.05, 0.15):
             try:
                 r = glide(ac, v, e)
-                print("  elev {elev:+.2f}  V {V:5.1f} m/s  sink {sink:5.2f} m/s  finesse {LD:5.1f}  "
-                      "oscill. V {V_osc:4.1f}  alpha {alpha:5.1f} deg  alt fin {alt_end:6.0f} m".format(**r))
+                print("  elev {elev:+.2f}  V {V:5.1f} m/s  sink {sink:5.2f} m/s  L/D {LD:5.1f}  "
+                      "V osc. {V_osc:4.1f}  alpha {alpha:5.1f} deg  end alt {alt_end:6.0f} m".format(**r))
             except Exception as ex:  # noqa: BLE001
-                print("  erreur", ex)
+                print("  error", ex)

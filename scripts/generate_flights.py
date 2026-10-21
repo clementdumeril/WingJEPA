@@ -1,8 +1,8 @@
-"""Génère un paquet (shard) de vols 6DoF de l'Ultra Stick 120 et l'écrit en .npz + .json.
+"""Generate a shard of 6DoF Ultra Stick 120 flights and write it as .npz + .json.
 
-Usage : python scripts/generate_flights.py --config configs/data_v1.yaml --set train --shard 3 --n-shards 20
-Chaque shard a sa propre graine (seed + 1000 * index du set + shard) : les shards sont indépendants.
-Prérequis : bash scripts/fetch_umn.sh (une fois).
+Usage: python scripts/generate_flights.py --config configs/data_v1.yaml --set train --shard 3 --n-shards 20
+Each shard has its own seed (seed + 1000 * set index + shard): shards are independent.
+Prerequisite: bash scripts/fetch_umn.sh (once).
 """
 import argparse
 import json
@@ -36,7 +36,7 @@ def _factor(rng, m, r, test):
 
 
 def sample_overrides(rng, n, p, ranges, is_test):
-    """Randomisation de domaine par vol (facteurs multiplicatifs ; décalage pour le centrage)."""
+    """Per-flight domain randomisation (multiplicative factors; offset for the CG position)."""
     keys = ["mass", "fIxx", "fIyy", "fIzz", "power_scale", "cg_shift"] + list(AERO)
     out = {k: [] for k in keys}
     for test in (False, True):
@@ -50,7 +50,7 @@ def sample_overrides(rng, n, p, ranges, is_test):
             out[k].append(_factor(rng, m, ranges["aero"], test))
     o = {k: np.concatenate(v) for k, v in out.items()}
     return dict(mass=o["mass"], Ixx=p["Ixx"] * o["fIxx"], Iyy=p["Iyy"] * o["fIyy"], Izz=p["Izz"] * o["fIzz"],
-                Ixz=p["Ixz"] * np.sqrt(o["fIxx"] * o["fIzz"]),        # garde la matrice définie positive
+                Ixz=p["Ixz"] * np.sqrt(o["fIxx"] * o["fIzz"]),        # keeps the inertia matrix positive definite
                 power_scale=o["power_scale"], cg_shift=o["cg_shift"], aero_scale={k: o[k] for k in AERO})
 
 
@@ -70,7 +70,7 @@ def simulate(rng, n, duration, n_test, cfg):
     V0 = rng.uniform(*pil["V_range"], n)
     psi0 = rng.uniform(-np.pi, np.pi, n)
     Y, cmd0, thr0, trim_ok = ac.trim(V0, h=h0, psi=psi0)
-    if not trim_ok.all():   # avion impossible à équilibrer à V0 (ex. trop peu de puissance) : on réessaie à 18 m/s
+    if not trim_ok.all():   # aircraft cannot be trimmed at V0 (e.g. too little power): retry at 18 m/s
         V0 = np.where(trim_ok, V0, 18.0)
         Y2, c2, t2, ok2 = ac.trim(V0, h=h0, psi=psi0)
         Y, cmd0, thr0 = np.where(trim_ok[:, None], Y, Y2), np.where(trim_ok[:, None], cmd0, c2), np.where(trim_ok, thr0, t2)
@@ -84,7 +84,7 @@ def simulate(rng, n, duration, n_test, cfg):
     t_dead = np.where(trim_ok, np.nan, -sim["warmup_s"])
     E_motor, prot_timer = np.zeros(n), np.zeros(n)
     rec = np.zeros((n, K, len(CHANNELS)), np.float32)
-    held = np.c_[cmd0, thr0]                       # de, da, dr, gaz
+    held = np.c_[cmd0, thr0]                       # de, da, dr, throttle
     turb = np.zeros((n, 3))
     wind_est = wind.steady.copy()
     t = 0.0
@@ -103,12 +103,12 @@ def simulate(rng, n, duration, n_test, cfg):
         hdot_air = -np.einsum("nj,nj->n", C[:, 2, :], Y[:, U:W + 1])
         gamma = np.arcsin(np.clip(hdot_air / Va, -1, 1))
         phi, th = Y[:, PHI], Y[:, TH]
-        psidot = g * np.tan(np.clip(phi, -1.3, 1.3)) / Va                # virage coordonné
+        psidot = g * np.tan(np.clip(phi, -1.3, 1.3)) / Va                # coordinated turn
         q_ref, r_ref = psidot * np.cos(th) * np.sin(phi), psidot * np.cos(th) * np.cos(phi)
 
-        # protection d'enveloppe : près du décrochage ou d'une attitude excessive, on reprend la main.
-        # Données air réelles (rafales comprises) lissées sur ~0,5 s, comme les capteurs filtrés d'un
-        # autopilote : on ignore les pointes de turbulence, pas les vraies sorties de domaine.
+        # Envelope protection: near stall or at an excessive attitude, take over control.
+        # True air data (gusts included) smoothed over ~0.5 s, like the filtered sensors of an
+        # autopilot: turbulence spikes are ignored, genuine excursions out of the envelope are not.
         if kk == 0:
             air_f = np.stack([Va, alpha, beta], 1)
         air_f += dt_ctrl / (prot["filter_tau_s"] + dt_ctrl) * (np.stack([Va, alpha, beta], 1) - air_f)
@@ -117,11 +117,11 @@ def simulate(rng, n, duration, n_test, cfg):
                 | (am > np.deg2rad(prot["alpha_max_deg"])) | (am < np.deg2rad(prot["alpha_min_deg"]))
                 | (np.abs(phi) > np.deg2rad(prot["phi_max_deg"])) | (np.abs(th) > np.deg2rad(prot["theta_max_deg"]))
                 | (np.abs(bm) > np.deg2rad(prot["beta_max_deg"])) | (Y[:, H] < prot["h_min"]))
-        if k >= 0:   # pas de protection pendant la mise en équilibre (autopilote seul)
+        if k >= 0:   # no protection during trim settling (autopilot only)
             prot_timer = np.where(trig, prot["hold_s"], np.maximum(prot_timer - dt_ctrl, 0.0))
         protect = prot_timer > 0
 
-        if k < 0:   # mise en équilibre sous autopilote (non enregistrée)
+        if k < 0:   # trim settling under autopilot (not recorded)
             h_ref, V_ref, phi_ref = h0, V0, np.zeros(n)
             eoff, freeze = np.zeros(n, bool), np.zeros(n, bool)
             add = np.zeros((n, 4))
@@ -135,13 +135,13 @@ def simulate(rng, n, duration, n_test, cfg):
             eoff, freeze = eoff & ~protect, freeze & ~protect
             add = np.where(protect[:, None], 0.0, add)
 
-        # inclinaison limitée à basse vitesse (le facteur de charge d'un virage rapproche du décrochage)
+        # bank angle limited at low speed (the load factor of a turn brings the aircraft closer to stall)
         bank_max = np.deg2rad(pil["lateral"]["bank_min_lim_deg"]) + np.deg2rad(
             pil["lateral"]["bank_deg"][1] - pil["lateral"]["bank_min_lim_deg"]) * np.clip((Va - 15.0) / 8.0, 0, 1)
         phi_ref = np.clip(phi_ref, -bank_max, bank_max)
         de_c, thr_c = tecs(Va, am, gamma, th, Y[:, Q], q_ref, Y[:, H], h_ref, V_ref, eoff, freeze, dt_ctrl)
         da_c, dr_c = lateral(phi_ref, phi, Y[:, P], Y[:, R], r_ref, beta, lat_g, cmd0[:, 1], cmd0[:, 2])
-        held = np.where(freeze[:, None], held, np.stack([de_c, da_c, dr_c, thr_c], 1))   # boucle ouverte : figé
+        held = np.where(freeze[:, None], held, np.stack([de_c, da_c, dr_c, thr_c], 1))   # open loop: frozen
         cmd = np.clip(held[:, :3] + add[:, :3], p["act_min"], p["act_max"])
         thr = np.where(eoff, 0.0, np.clip(held[:, 3] + add[:, 3], 0.0, 1.0))
 
@@ -170,7 +170,7 @@ def simulate(rng, n, duration, n_test, cfg):
             gb, gn = gust_body(Y, t)
             wind_est = wind.step_estimate(wind.steady + gn, dt_sim)
             Yn = ac.step(Y, cmd, thr, gb, wind.steady, dt_sim)
-            # enveloppe vérifiée à chaque pas d'intégration : un vol qui en sort est figé sur son dernier état valide
+            # envelope checked at every integration step: a flight that leaves it is frozen at its last valid state
             with np.errstate(all="ignore"):
                 vr = Yn[:, U:W + 1] - gb
                 Va_n = np.linalg.norm(vr, axis=1)

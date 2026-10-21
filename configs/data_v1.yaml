@@ -1,56 +1,56 @@
-# Dataset data_v1 (6 degrés de liberté) — décisions : docs/phase1_decisions.md
+# Dataset data_v1 (6 degrees of freedom) - decisions: docs/phase1_decisions.md
 name: data_v1
 seed: 20261019
-out_dir: /global/scratch/users/clementdumeril/WingJEPA/data
-split: [0.8, 0.1, 0.1]          # train / val / test, tirés par vol (set "train" seulement)
+out_dir: data                   # relative to the working directory (jobs run from the repo root)
+split: [0.8, 0.1, 0.1]          # train / val / test, drawn per flight ("train" set only)
 
 sets:
-  smoke:     {n_flights: 40,   duration_s: 30,  test_aircraft_fraction: 0.0}   # test rapide
+  smoke:     {n_flights: 40,   duration_s: 30,  test_aircraft_fraction: 0.0}   # quick test
   train:     {n_flights: 2000, duration_s: 30,  test_aircraft_fraction: 0.0}
   test_long: {n_flights: 200,  duration_s: 120, test_aircraft_fraction: 0.5}
 
 sim:
-  dt: 0.01                      # pas RK4 (100 Hz)
-  dt_record: 0.05               # enregistrement et commandes (20 Hz)
-  warmup_s: 10                  # mise en équilibre sous autopilote, non enregistrée
+  dt: 0.01                      # RK4 step (100 Hz)
+  dt_record: 0.05               # recording and commands (20 Hz)
+  warmup_s: 10                  # settling at trim under autopilot, not recorded
   h0_range: [150, 300]          # m
-  # sortie d'enveloppe = perte de contrôle ou hors du domaine de validité (tables NASA : alpha <= 40,
-  # |beta| <= 30 deg ; en dessous de -5 deg, prolongement linéaire des tables, plausible jusqu'à -15 deg) :
-  # le vol est figé sur son dernier état valide
+  # envelope exit = loss of control or outside the validity domain (NASA tables: alpha <= 40,
+  # |beta| <= 30 deg; below -5 deg, linear extension of the tables, plausible down to -15 deg):
+  # the flight is frozen at its last valid state
   limits: {Va_min: 5.0, Va_max: 45.0, alpha_max_deg: 35, alpha_min_deg: -15, beta_max_deg: 25,
            phi_max_deg: 75, theta_max_deg: 80, h_min: 20}
 
 aircraft:
-  config: configs/ultrastick120.yaml   # Ultra Stick 120, tables NASA (scripts/fetch_umn.sh)
-  ranges:                       # [entraînement, limite des avions de test]
+  config: configs/ultrastick120.yaml   # Ultra Stick 120, NASA tables (scripts/fetch_umn.sh)
+  ranges:                       # [training, limit for the test aircraft]
     mass: [0.20, 0.35]
-    inertia: [0.30, 0.45]       # Ixx, Iyy, Izz indépendamment (Ixz suit pour rester défini positif)
-    aero: [0.20, 0.30]          # facteurs sur CD, CY, CL, Cl, Cm, Cn, indépendamment
-    motor: [0.30, 0.45]         # puissance du moteur
-    cg_shift: [0.03, 0.05]      # fraction de corde
+    inertia: [0.30, 0.45]       # Ixx, Iyy, Izz independently (Ixz follows to stay positive definite)
+    aero: [0.20, 0.30]          # factors on CD, CY, CL, Cl, Cm, Cn, independently
+    motor: [0.30, 0.45]         # motor power
+    cg_shift: [0.03, 0.05]      # fraction of chord
 
 wind:
-  steady_horizontal_max: 10.0   # m/s, direction aléatoire (ne fait que déplacer l'avion)
-  steady_vertical_max: 1.5      # m/s, ascendance ou descendance
+  steady_horizontal_max: 10.0   # m/s, random direction (only displaces the aircraft)
+  steady_vertical_max: 1.5      # m/s, updraft or downdraft
   turbulence_probs: {none: 0.25, light: 0.35, moderate: 0.25, severe: 0.15}
   gust_rate_per_min: 3
   gust_duration_s: [1.0, 5.0]
-  gust_amplitude_max: 3.0       # m/s par axe, rafale (1 - cos)
-  estimate_tau_s: 2.0           # vent estimé : passe-bas
-  estimate_bias_sigma: 0.5      # m/s, biais lent de l'estimateur
+  gust_amplitude_max: 3.0       # m/s per axis, (1 - cos) gust
+  estimate_tau_s: 2.0           # estimated wind: low-pass
+  estimate_bias_sigma: 0.5      # m/s, slow estimator bias
   estimate_bias_T_s: 20.0
 
 pilot:
-  type_probs: [0.15, 0.30, 0.30, 0.25]   # stabilisé, excitation, consignes TECS, aléatoire
-  V_range: [15.0, 28.0]         # décrochage vers 12 m/s
+  type_probs: [0.15, 0.30, 0.30, 0.25]   # steady, excitation, TECS setpoints, random
+  V_range: [15.0, 28.0]         # stall around 12 m/s
   ref_hold_s: [4.0, 12.0]
   ref_dh_max: 40.0
-  exc_width_s: [0.3, 1.0]       # durée d'une unité de la manœuvre multi-échelons
+  exc_width_s: [0.3, 1.0]       # duration of one unit of the multistep maneuver
   exc_elev_deg: [1.0, 4.0]
   exc_thr: [0.1, 0.3]
   exc_ail_deg: [1.0, 3.5]
   exc_rud_deg: [1.0, 3.5]
-  exc_free_s: 2.0               # boucle ouverte prolongée après la manœuvre
+  exc_free_s: 2.0               # open loop extended after the maneuver
   exc_gap_s: [3.0, 8.0]
   rand_tau_s: [0.3, 2.0]
   rand_elev_deg: [1.0, 3.0]
@@ -63,25 +63,25 @@ pilot:
   engine_off_per_min: 2
   engine_off_s: [5.0, 15.0]
   lateral:
-    mode_probs: [0.3, 0.35, 0.35]   # ligne droite, virages et cercles, virages en S
+    mode_probs: [0.3, 0.35, 0.35]   # straight line, turns and circles, S-turns
     turn_hold_s: [4.0, 15.0]
     bank_deg: [10.0, 40.0]
     s_bank_deg: [15.0, 35.0]
     s_period_s: [10.0, 30.0]
-    bank_min_lim_deg: 15.0      # inclinaison max à 15 m/s, croissant jusqu'à bank_deg[1] à 23 m/s
+    bank_min_lim_deg: 15.0      # max bank at 15 m/s, increasing up to bank_deg[1] at 23 m/s
     gains: {k_phi: 0.8, k_p: 0.15, k_r: 0.3, k_beta: 1.5}
-  protection:                   # comme une protection d'enveloppe d'autopilote
+  protection:                   # like an autopilot envelope protection
     V_min: 13.0                 # m/s
-    V_max: 33.0                 # survitesse (piqué)
-    alpha_max_deg: 12.0         # décrochage vers 12,5 deg
-    alpha_min_deg: -5.0         # incidence négative (bord des tables NASA)
+    V_max: 33.0                 # overspeed (dive)
+    alpha_max_deg: 12.0         # stall around 12.5 deg
+    alpha_min_deg: -5.0         # negative angle of attack (edge of the NASA tables)
     phi_max_deg: 60.0
-    theta_max_deg: 45.0         # piqué ou ressource excessifs
-    beta_max_deg: 20.0          # tables NASA jusqu'à 30 deg
-    h_min: 60.0                 # m, proximité du sol
-    filter_tau_s: 0.5           # lissage des données air utilisées par la protection
-    hold_s: 3.0                 # durée de la reprise en main
-    V_target: 20.0              # vitesse visée pendant la reprise
+    theta_max_deg: 45.0         # excessive dive or pull-up
+    beta_max_deg: 20.0          # NASA tables up to 30 deg
+    h_min: 60.0                 # m, close to the ground
+    filter_tau_s: 0.5           # smoothing of the air data used by the protection
+    hold_s: 3.0                 # duration of the recovery
+    V_target: 20.0              # target speed during the recovery
   tecs:
     k_h: 0.04
     gamma_max: 0.15
@@ -102,6 +102,6 @@ pilot:
     theta_cmd_max: 0.4
     k_th: 0.6
     k_q: 0.15
-    alpha_floor_deg: -4.0       # limiteur d'incidence (incidence filtrée)
+    alpha_floor_deg: -4.0       # angle-of-attack limiter (filtered angle of attack)
     alpha_ceil_deg: 11.0
     k_alpha: 1.0

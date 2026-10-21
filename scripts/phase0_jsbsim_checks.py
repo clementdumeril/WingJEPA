@@ -1,13 +1,13 @@
-"""Phase 0 : vérifications de JSBSim (vitesse, vol plané des planeurs fournis, moteur coupé).
+"""Phase 0: JSBSim checks (speed, glide of the bundled gliders, engine off).
 
-Usage : python scripts/phase0_jsbsim_checks.py
+Usage: python scripts/phase0_jsbsim_checks.py
 """
 import time
 
 import jsbsim
 
 FT = 0.3048
-DT = 1 / 120  # pas de JSBSim par défaut
+DT = 1 / 120  # default JSBSim time step
 
 
 def make(aircraft, v0_kts, alt_ft=3000.0, gamma_deg=-3.0):
@@ -24,7 +24,7 @@ def make(aircraft, v0_kts, alt_ft=3000.0, gamma_deg=-3.0):
 
 
 def glide_test(aircraft, v0_kts, seconds=60.0):
-    """Vol plané gouvernes au neutre : vitesse, taux de chute et finesse en fin de vol."""
+    """Glide with controls neutral: speed, sink rate and glide ratio at the end of the flight."""
     fdm = make(aircraft, v0_kts)
     fdm["fcs/elevator-cmd-norm"] = 0.0
     n = int(seconds / DT)
@@ -35,10 +35,10 @@ def glide_test(aircraft, v0_kts, seconds=60.0):
     return {
         "V (m/s)": round(vt, 1),
         "sink (m/s)": round(-hdot, 2),
-        "finesse": round(vt / max(-hdot, 1e-3), 1),
+        "L/D": round(vt / max(-hdot, 1e-3), 1),
         "alpha (deg)": round(fdm["aero/alpha-deg"], 1),
         "theta (deg)": round(fdm["attitude/theta-deg"], 1),
-        "masse (kg)": round(fdm["inertia/mass-slugs"] * 14.5939, 1),
+        "mass (kg)": round(fdm["inertia/mass-slugs"] * 14.5939, 1),
     }
 
 
@@ -56,15 +56,15 @@ if __name__ == "__main__":
         try:
             print(f"{ac:8s}", glide_test(ac, v))
         except Exception as e:  # noqa: BLE001
-            print(f"{ac:8s} ERREUR : {e}")
+            print(f"{ac:8s} ERROR: {e}")
     sps = throughput("minisgs", 30)
-    print(f"vitesse JSBSim (minisgs, 1 processus) : {sps:,.0f} pas/s = {sps * DT:,.0f} s de vol par seconde")
-    # Moteur coupé sur un avion motorisé
+    print(f"JSBSim speed (minisgs, 1 process): {sps:,.0f} steps/s = {sps * DT:,.0f} s of flight per second")
+    # Engine off on a powered aircraft
     fdm = make("c172p", 90)
     fdm["propulsion/set-running"] = 0
     fdm["fcs/throttle-cmd-norm"] = 0.0
     for _ in range(int(30 / DT)):
         fdm.run()
-    print("c172p moteur coupé :", {"poussée (lbf)": round(fdm["propulsion/engine/thrust-lbs"], 2),
+    print("c172p engine off:", {"thrust (lbf)": round(fdm["propulsion/engine/thrust-lbs"], 2),
                                     "sink (m/s)": round(-fdm["velocities/h-dot-fps"] * FT, 2),
                                     "V (m/s)": round(fdm["velocities/vt-fps"] * FT, 1)})

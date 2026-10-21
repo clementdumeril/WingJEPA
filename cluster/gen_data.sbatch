@@ -1,8 +1,8 @@
 #!/bin/bash
-# Génération des vols : un shard par tâche du tableau.
-# Usage : sbatch --array=0-19 cluster/gen_data.sbatch configs/data_v1.yaml train 20
+# Flight generation: one shard per array task.
+# Usage: sbatch --array=0-19 cluster/gen_data.sbatch configs/data_v1.yaml train 20
 #         sbatch --array=0-3  cluster/gen_data.sbatch configs/data_v1.yaml test_long 4
-# Puis le contrôle : sbatch cluster/job_cpu.sbatch scripts/check_dataset.py --dir <out_dir>/<name> --set train
+# Then the check: sbatch cluster/job_cpu.sbatch scripts/check_dataset.py --dir <out_dir>/<name> --set train
 #SBATCH --job-name=wingjepa-gen
 #SBATCH --account=ic_piml
 #SBATCH --partition=savio4_htc

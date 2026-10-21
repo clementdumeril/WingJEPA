@@ -3,7 +3,7 @@ __pycache__/
 *.egg-info/
 .venv/
 .pytest_cache/
-# Données et résultats volumineux : hors du dépôt
+# Large data and raw run outputs stay on the cluster; results/ keeps the small evaluation files
 /data/
 /runs/
 *.pt
@@ -11,10 +11,19 @@ __pycache__/
 *.h5
 *.mat
 *.csv
+!results/summary.csv
 slurm-*.out
+*.out
 
-# données tierces (tables NASA du simulateur UMN), récupérées par scripts/fetch_umn.sh
+# third-party data (NASA tables of the UMN simulator), fetched by scripts/fetch_umn.sh
 third_party/
 
-# récaps personnels : gardés sur le PC, jamais sur GitHub
-docs/recap_*.md
+# working notes (kept locally)
+docs/*.md
+
+# editor and assistant settings
+.claude/
+CLAUDE.md
+AGENTS.md
+.cursor/
+.env

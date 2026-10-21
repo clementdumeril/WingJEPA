@@ -1,13 +1,13 @@
-"""Fenêtres d'entraînement pour les world models (docs/model_design.md).
+"""Training windows for the world models (docs/model_design.md).
 
-Par pas de temps (20 Hz), 16 grandeurs :
-  état (9)      : Va, alpha, beta, p, q, r, phi, theta, vitesse verticale
-  commandes (4) : profondeur, ailerons, direction, gaz
-  vent (3)      : vent ESTIMÉ exprimé par rapport au cap (dans l'axe, travers, vertical)
-Le cap et la position ne sont pas donnés au modèle (la dynamique n'en dépend pas) ; l'altitude est
-l'intégrale de la vitesse verticale.
+Per time step (20 Hz), 16 quantities:
+  state (9)     : Va, alpha, beta, p, q, r, phi, theta, vertical speed
+  controls (4)  : elevator, aileron, rudder, throttle
+  wind (3)      : ESTIMATED wind expressed relative to the heading (along-track, cross-track, vertical)
+Heading and position are not given to the model (the dynamics do not depend on them); altitude is
+the integral of the vertical speed.
 
-Une fenêtre = H pas de passé + T pas de futur, entièrement dans la partie valide du vol.
+A window = H past steps + T future steps, entirely within the valid part of the flight.
 """
 from pathlib import Path
 
@@ -18,15 +18,15 @@ CONTROLS = ["de_cmd", "da_cmd", "dr_cmd", "dt_cmd"]
 WIND = ["wind_along", "wind_cross", "wind_down"]
 FEATURES = STATE + CONTROLS + WIND
 N_STATE, N_CTRL, N_WIND = len(STATE), len(CONTROLS), len(WIND)
-# paramètres connus de l'avion (pesée, essai pendulaire), donnés aux modèles v2 et aux équations du modèle C
+# known aircraft parameters (weighing, pendulum test), given to the v2 models and to the model C equations
 AIRCRAFT = ["mass", "Ixx", "Iyy", "Izz", "Ixz"]
 
 
 def load_set(data_dir, set_name):
-    """Concatène les shards d'un set : données (n, K, C), canaux, métadonnées (dict de tableaux (n,))."""
+    """Concatenate the shards of a set: data (n, K, C), channels, metadata (dict of (n,) arrays)."""
     files = sorted(Path(data_dir).glob(f"{set_name}_shard*.npz"))
     if not files:
-        raise FileNotFoundError(f"aucun fichier {set_name}_shard*.npz dans {data_dir}")
+        raise FileNotFoundError(f"no {set_name}_shard*.npz file in {data_dir}")
     zs = [np.load(f, allow_pickle=False) for f in files]
     ch = list(zs[0]["channels"])
     data = np.concatenate([z["data"] for z in zs])
@@ -35,7 +35,7 @@ def load_set(data_dir, set_name):
 
 
 def features(data, ch, dt=0.05):
-    """(n, K, 16) float32 dans l'ordre FEATURES, et le masque des pas valides (n, K)."""
+    """(n, K, 16) float32 in FEATURES order, and the mask of valid steps (n, K)."""
     c = {k: data[:, :, i].astype(np.float64) for i, k in enumerate(ch)}
     psi = c["psi"]
     along = c["wind_n_est"] * np.cos(psi) + c["wind_e_est"] * np.sin(psi)
@@ -45,19 +45,19 @@ def features(data, ch, dt=0.05):
             c["de_cmd"], c["da_cmd"], c["dr_cmd"], c["dt_cmd"], along, cross, c["wind_d_est"]]
     X = np.stack(cols, -1).astype(np.float32)
     alive = c["alive"] > 0.5
-    # la dérivée de h n'est fiable que si les deux voisins sont valides
+    # the derivative of h is only reliable if both neighbours are valid
     alive[:, 1:-1] &= alive[:, :-2] & alive[:, 2:]
     return X, alive, c["h"].astype(np.float32)
 
 
 def aircraft_params(meta):
-    """(n, 5) float32 : masse et inerties de chaque vol, dans l'ordre AIRCRAFT."""
+    """(n, 5) float32: mass and inertias of each flight, in AIRCRAFT order."""
     return np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
 
 
 def true_wind_features(data, ch):
-    """Vrai vent (moyen + rafales, sans la turbulence) dans le repère du cap, (n, K, 3) : sert à
-    l'évaluation « vent connu », pour séparer l'erreur du modèle de ce qui est imprévisible."""
+    """True wind (mean + gusts, without turbulence) in the heading frame, (n, K, 3): used for the
+    "known wind" evaluation, to separate the model error from what is unpredictable."""
     c = {k: data[:, :, i].astype(np.float64) for i, k in enumerate(ch)}
     psi = c["psi"]
     along = c["wind_n"] * np.cos(psi) + c["wind_e"] * np.sin(psi)
@@ -66,11 +66,11 @@ def true_wind_features(data, ch):
 
 
 def window_starts(alive, length):
-    """Liste (vol, début) des fenêtres de `length` pas entièrement valides."""
+    """List of (flight, start) for the windows of `length` steps that are entirely valid."""
     n, K = alive.shape
     if K < length:
         return np.zeros((0, 2), np.int64)
-    # nombre de pas valides dans chaque fenêtre glissante
+    # number of valid steps in each sliding window
     cs = np.concatenate([np.zeros((n, 1)), np.cumsum(alive, 1)], 1)
     full = (cs[:, length:] - cs[:, :-length]) == length
     f, s = np.nonzero(full)
@@ -78,7 +78,7 @@ def window_starts(alive, length):
 
 
 class Normalizer:
-    """Centrage-réduction par grandeur, statistiques calculées sur les vols d'entraînement."""
+    """Per-quantity standardization (zero mean, unit variance), statistics computed on the training flights."""
 
     def __init__(self, mean, std):
         self.mean, self.std = np.asarray(mean, np.float32), np.asarray(std, np.float32)
@@ -103,9 +103,9 @@ class Normalizer:
 
 
 def split_mask(meta, split, seed=0):
-    """Masque des vols d'un split (train / val / test), tel qu'enregistré à la génération (set 'train').
-    Les autres sets n'ont pas de découpage (tout est 'test') : pour les essais locaux sur un petit set,
-    on en tire un (80/10/10) avec une graine fixe."""
+    """Mask of the flights in a split (train / val / test), as recorded at generation time (set 'train').
+    The other sets have no split (everything is 'test'): for local trials on a small set,
+    one is drawn (80/10/10) with a fixed seed."""
     s = meta["split"]
     if (s == "train").any():
         return s == split
@@ -114,8 +114,8 @@ def split_mask(meta, split, seed=0):
 
 
 class WindowSampler:
-    """Tire des lots de fenêtres (passé H + futur T) directement depuis un tableau en mémoire.
-    P (n, 5), facultatif : paramètres de l'avion de chaque vol (aircraft_params)."""
+    """Draws batches of windows (past H + future T) directly from an in-memory array.
+    P (n, 5), optional: aircraft parameters of each flight (aircraft_params)."""
 
     def __init__(self, Xn, alive, H, T, seed=0, P=None):
         self.X, self.H, self.T, self.P = Xn, H, T, P

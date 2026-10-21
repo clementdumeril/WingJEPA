@@ -1,22 +1,22 @@
-"""Évaluation en boucle ouverte d'un world model : à partir de 0,5 s de passé réel, le modèle prédit
-seul pendant L secondes en ne recevant que les commandes réellement appliquées et le vent.
+"""Open-loop evaluation of a world model: starting from 0.5 s of real past, the model predicts
+on its own for L seconds, receiving only the controls actually applied and the wind.
 
-Trois prédictions sont comparées à la vérité :
-  - modele_vent_estime : dernier vent estimé tenu constant (cas réaliste, comme en usage) ;
-  - modele_vent_vrai   : vrai vent (moyen + rafales) à chaque pas, la turbulence restant inconnue ;
-                         sépare l'erreur du modèle de ce qui est imprévisible ;
-  - reference          : « rien ne change » (état constant, vitesse verticale constante) ;
-  - reference_altitude_constante : état constant et vitesse verticale nulle (journal, § 9 : les vols restent
-                         près de leur consigne d'altitude, cette référence est dure à battre à 60 s).
-Résultats par groupe d'avions et par niveau de turbulence.
-Modèle C (tête physique) : en plus, « attribution » : la correction apprise au premier pas est comparée à ce
-qui manque vraiment à l'a priori (forces et moments vrais du simulateur - a priori, au même état) ; R2 par
-composante (1 = la correction a appris exactement la physique manquante, 0 = rien, < 0 = pire que rien).
+Four predictions are compared to the truth:
+  - modele_vent_estime : last estimated wind held constant (realistic case, as in use);
+  - modele_vent_vrai   : true wind (mean + gusts) at each step, turbulence remaining unknown;
+                         separates the model error from what is unpredictable;
+  - reference          : "nothing changes" (constant state, constant vertical speed);
+  - reference_altitude_constante : constant state and zero vertical speed (project log, section 9: flights
+                         stay close to their altitude setpoint, this reference is hard to beat at 60 s).
+Results per aircraft group and per turbulence level.
+Model C (physics head): in addition, "attribution": the correction learned at the first step is compared to
+what the prior is really missing (true simulator forces and moments - prior, at the same state); R2 per
+component (1 = the correction learned exactly the missing physics, 0 = nothing, < 0 = worse than nothing).
 
-Horizon utile = premier instant où |erreur d'altitude| > 5 m, |erreur de vitesse| > 1 m/s ou
-|erreur de phi ou theta| > 10 deg.
+Useful horizon = first instant where |altitude error| > 5 m, |speed error| > 1 m/s or
+|phi or theta error| > 10 deg.
 
-Usage : python scripts/evaluate.py --model-dir runs/jepa_s0 --data-dir <out_dir>/data_v1 --set test_long
+Usage: python scripts/evaluate.py --model-dir runs/jepa_s0 --data-dir <out_dir>/data_v1 --set test_long
 """
 import argparse
 import json
@@ -50,7 +50,7 @@ def load_model(d):
 
 
 def make_rollouts(X, alive, h, H, L, stride):
-    """Départs (vol, s) tels que H + L pas soient valides : séquences (N, H+L, 16), altitudes, n° de vol."""
+    """Starts (flight, s) such that H + L steps are valid: sequences (N, H+L, 16), altitudes, flight index."""
     seqs, hs, fl = [], [], []
     for f in range(X.shape[0]):
         for s in range(0, X.shape[1] - H - L + 1, stride):
@@ -65,7 +65,7 @@ def make_rollouts(X, alive, h, H, L, stride):
 
 @torch.no_grad()
 def predict(model, norm, seq, H, hold_wind, ac=None, batch=512):
-    """seq : (N, H+L, 16) non normalisé, ac : (N, 5) avion -> états prédits (N, L, 9) non normalisés."""
+    """seq : (N, H+L, 16) unnormalized, ac : (N, 5) aircraft -> predicted states (N, L, 9) unnormalized."""
     out = []
     for i in range(0, len(seq), batch):
         s = torch.from_numpy(norm(seq[i:i + batch]))
@@ -76,11 +76,11 @@ def predict(model, norm, seq, H, hold_wind, ac=None, batch=512):
 
 @torch.no_grad()
 def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
-    """Correction apprise au premier pas vs physique vraiment manquante à l'a priori (R2 par composante)."""
+    """Correction learned at the first step vs physics really missing from the prior (R2 per component)."""
     head = model.decoder
     st = window_starts(alive, H + 1)
     st = st[np.random.default_rng(seed).choice(len(st), min(n, len(st)), replace=False)]
-    f, s = st[:, 0], st[:, 1] + H - 1                                   # dernier pas observé
+    f, s = st[:, 0], st[:, 1] + H - 1                                   # last observed step
     seq = torch.from_numpy(norm(X[f[:, None], st[:, 1:2] + np.arange(H + 1)]))
     ac = torch.from_numpy(P[f])
     z0 = model.encoder(seq[:, :H, :N_STATE], model.ctx(ac))
@@ -107,7 +107,7 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
 
 
 def errors(pred, seq, hs, H):
-    """Erreurs (N, L) par grandeur, angles en degrés ; altitude = intégrale de la vitesse verticale."""
+    """Errors (N, L) per quantity, angles in degrees; altitude = integral of the vertical speed."""
     true = seq[:, H:, :N_STATE]
     e = {k: (pred[:, :, i] - true[:, :, i]) * (DEG if k in ANGLES else 1.0) for i, k in enumerate(STATE)}
     e["h"] = hs[:, :1] + np.cumsum(pred[:, :, STATE.index("hdot")], 1) * DT - hs[:, 1:]
@@ -137,7 +137,7 @@ def main():
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", required=True)
-    ap.add_argument("--horizon-s", type=float, default=None, help="défaut : 25 s (vols de 30 s), 60 s (vols longs)")
+    ap.add_argument("--horizon-s", type=float, default=None, help="default: 25 s (30 s flights), 60 s (long flights)")
     ap.add_argument("--stride-s", type=float, default=None)
     ap.add_argument("--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "4")))
     a = ap.parse_args()
@@ -171,7 +171,7 @@ def main():
         idx = np.flatnonzero(gm)
         seq, hs, fl = make_rollouts(X[idx], alive[idx], h[idx], H, L, stride)
         if seq is None:
-            print(f"[{gname}] aucune séquence complète de {L * DT:.0f} s")
+            print(f"[{gname}] no complete sequence of {L * DT:.0f} s")
             continue
         seq_true, _, _ = make_rollouts(X_true[idx], alive[idx], h[idx], H, L, stride)
         turb = meta["turb_level"][idx][fl]
@@ -184,9 +184,9 @@ def main():
                "reference": errors(const, seq, hs, H),
                "reference_altitude_constante": errors(level, seq, hs, H)}
         res = {}
-        print(f"\n== {gname} : {len(seq)} séquences de {L * DT:.0f} s")
-        print("   turbulence  n     horizon utile médian [s]            RMS altitude [m]                  RMS vitesse 5 s [m/s]")
-        print("                     estimé / vrai vent / réf. / alt. cst   estimé / vrai vent / réf. / alt. cst   ...")
+        print(f"\n== {gname}: {len(seq)} sequences of {L * DT:.0f} s")
+        print("   turbulence  n     median useful horizon [s]           RMS altitude [m]                  RMS speed 5 s [m/s]")
+        print("                     est. / true wind / ref. / const. alt   est. / true wind / ref. / const. alt   ...")
         tmax = "60s" if L * DT >= 60 else "20s"
         for tl in ["toutes"] + TURB:
             m = np.ones(len(seq), bool) if tl == "toutes" else (turb == tl)
@@ -196,19 +196,19 @@ def main():
             hz = " / ".join(f"{res[tl][w]['horizon_utile_s']['mediane']:.2f}" for w in WHO)
             hh = " / ".join(f"{res[tl][w]['h'].get(tmax, float('nan')):.0f}" for w in WHO)
             va = " / ".join(f"{res[tl][w]['Va']['5s']:.2f}" for w in WHO)
-            print(f"   {tl:10s} {int(m.sum()):4d}   {hz:36s}  à {tmax}: {hh:28s}  {va}")
+            print(f"   {tl:10s} {int(m.sum()):4d}   {hz:36s}  at {tmax}: {hh:28s}  {va}")
         results[gname] = dict(n_sequences=len(seq), par_turbulence=res)
         if cfg.get("head") == "physics":
             at = attribution(model, norm, X[idx], alive[idx], data[idx], ch, P[idx], H)
             results[gname]["attribution"] = at
-            print("   attribution (correction apprise vs physique manquante à l'a priori, premier pas) :")
+            print("   attribution (learned correction vs physics missing from the prior, first step):")
             for k, v in at.items():
                 print(f"      {k:3s} R2 {v['r2']:+.2f}   RMS manquant {v['rms_manquant']:.4f}   "
                       f"RMS correction {v['rms_correction']:.4f}")
 
     out = Path(a.model_dir) / f"eval_{a.set}.json"
     json.dump(results, open(out, "w"), indent=1)
-    print(f"\nrésultats détaillés (toutes les grandeurs, 1/5/20/60 s) : {out}")
+    print(f"\ndetailed results (all quantities, 1/5/20/60 s): {out}")
 
 
 if __name__ == "__main__":

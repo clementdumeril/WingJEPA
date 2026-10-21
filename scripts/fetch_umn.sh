@@ -1,6 +1,6 @@
 #!/bin/bash
-# Télécharge le simulateur UMN UAV Lab (UMNUAV_sim_v4, BSD) et en extrait les tables aéro NASA de
-# l'Ultra Stick 120 (FASER_Aero.mat) dans third_party/umn/ (exclu de git). Une fois, depuis la racine.
+# Downloads the UMN UAV Lab simulator (UMNUAV_sim_v4, BSD) and extracts the NASA aero tables of
+# the Ultra Stick 120 (FASER_Aero.mat) into third_party/umn/ (excluded from git). Once, from the repo root.
 set -euo pipefail
 DEST=third_party/umn
 mkdir -p "$DEST"

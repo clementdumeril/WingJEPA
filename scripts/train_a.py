@@ -1,23 +1,23 @@
-"""Entraînement du modèle A (boîte noire), de la référence A0 (sans JEPA) et du modèle C (tête physique).
+"""Training of model A (black box), of the A0 reference (no JEPA) and of model C (physics head).
 
-  --mode jepa    : étape 1 = encodeur + prédicteur, perte JEPA + lambda * SIGReg (latents prédits) ;
-                   étape 2 = décodeur seul (encodeur et prédicteur figés), erreur sur l'état.
-  --mode a0      : même réseau entraîné d'un bloc sur l'erreur d'état (prédiction directe, pas de JEPA).
-  --mode joint   : JEPA + SIGReg + erreur d'état ensemble, décodeur appris en même temps (pas figé).
-  --mode c_direct: comme a0, avec la tête physique (--prior) à la place du décodeur MLP ; perte = erreur
-                   d'état + --lambda-res * taille de la correction apprise (idée d'APHYNITY).
-  --mode c_jepa  : tronc (encodeur + prédicteur) d'un run jepa (--trunk) figé, tête physique seule apprise
-                   (comme la sonde physique de SkyJEPA), même perte que c_direct.
-Horizon d'entraînement : de --T pas au départ jusqu'à --T-max pas (curriculum linéaire atteint à
---curriculum-frac de l'entraînement) ; la validation utilise toujours --T-max.
-On garde les poids les meilleurs sur les vols de validation.
+  --mode jepa    : stage 1 = encoder + predictor, JEPA loss + lambda * SIGReg (predicted latents);
+                   stage 2 = decoder alone (encoder and predictor frozen), state error.
+  --mode a0      : same network trained in one block on the state error (direct prediction, no JEPA).
+  --mode joint   : JEPA + SIGReg + state error together, decoder learned at the same time (not frozen).
+  --mode c_direct: like a0, with the physics head (--prior) instead of the MLP decoder; loss = state
+                   error + --lambda-res * size of the learned correction (APHYNITY idea).
+  --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
+                   learned (like the SkyJEPA physics probe), same loss as c_direct.
+Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
+--curriculum-frac of the training); validation always uses --T-max.
+The best weights on the validation flights are kept.
 
-Entrées v2 par défaut (2 s de passé, encodeur à 5 couches, masse et inerties en entrée). Pour refaire un
-run v1 : --H 10 --channels 16,16,32 --dilations 1,2,4 --aircraft-input 0.
+v2 inputs by default (2 s of past, 5-layer encoder, mass and inertias as input). To redo a v1 run:
+--H 10 --channels 16,16,32 --dilations 1,2,4 --aircraft-input 0.
 
-Usage : python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a --mode jepa
-        python scripts/train_a.py ... --mode c_direct --prior <data_dir>/priors/ajuste.json
-        python scripts/train_a.py ... --mode c_jepa --prior <...>/ajuste.json --trunk runs/jepa_v2T100_s0
+Usage: python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a --mode jepa
+       python scripts/train_a.py ... --mode c_direct --prior <data_dir>/priors/ajuste.json
+       python scripts/train_a.py ... --mode c_jepa --prior <...>/ajuste.json --trunk runs/jepa_v2T100_s0
 """
 import argparse
 import json
@@ -53,7 +53,7 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
         opt.zero_grad()
         loss.backward()
         gnorm = torch.nn.utils.clip_grad_norm_(params, a.clip)
-        # un lot à perte ou gradient non fini est sauté : un seul NaN suffirait à détruire les poids
+        # a batch with a non-finite loss or gradient is skipped: a single NaN would be enough to destroy the weights
         if torch.isfinite(loss) and torch.isfinite(gnorm):
             opt.step()
         else:
@@ -77,19 +77,19 @@ def main():
     ap.add_argument("--set", default="train")
     ap.add_argument("--out", required=True)
     ap.add_argument("--mode", choices=["jepa", "a0", "joint", "c_direct", "c_jepa"], default="jepa")
-    ap.add_argument("--H", type=int, default=40, help="pas de passé (0,05 s)")
-    ap.add_argument("--channels", default="16,16,32,32,32", help="canaux des couches de l'encodeur")
-    ap.add_argument("--dilations", default="1,2,4,8,16", help="champ réceptif = 1 + 2 * somme")
-    ap.add_argument("--aircraft-input", type=int, default=1, help="masse et inerties en entrée (1) ou non (0)")
-    ap.add_argument("--T", type=int, default=20, help="horizon d'entraînement au départ (pas de 0,05 s)")
-    ap.add_argument("--T-max", type=int, default=None, help="horizon final (défaut : --T, pas de curriculum)")
+    ap.add_argument("--H", type=int, default=40, help="past steps (0.05 s)")
+    ap.add_argument("--channels", default="16,16,32,32,32", help="channels of the encoder layers")
+    ap.add_argument("--dilations", default="1,2,4,8,16", help="receptive field = 1 + 2 * sum")
+    ap.add_argument("--aircraft-input", type=int, default=1, help="mass and inertias as input (1) or not (0)")
+    ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
+    ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
-    ap.add_argument("--lambda-state", type=float, default=1.0, help="poids de l'erreur d'état (mode joint)")
-    ap.add_argument("--prior", default=None, help="a priori de la tête physique (scripts/fit_prior.py)")
-    ap.add_argument("--trunk", default=None, help="run jepa dont on reprend le tronc figé (mode c_jepa)")
-    ap.add_argument("--lambda-res", type=float, default=1e-3, help="pénalité sur la taille de la correction")
-    ap.add_argument("--out-scale", type=float, default=0.1, help="échelle de la correction (coefficients)")
-    ap.add_argument("--n-sub", type=int, default=1, help="sous-pas RK4 par pas de 0,05 s (tête physique)")
+    ap.add_argument("--lambda-state", type=float, default=1.0, help="weight of the state error (joint mode)")
+    ap.add_argument("--prior", default=None, help="prior of the physics head (scripts/fit_prior.py)")
+    ap.add_argument("--trunk", default=None, help="jepa run whose frozen trunk is reused (c_jepa mode)")
+    ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
+    ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
+    ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
     ap.add_argument("--z-dim", type=int, default=32)
     ap.add_argument("--steps1", type=int, default=20000)
     ap.add_argument("--steps2", type=int, default=20000)
@@ -116,14 +116,14 @@ def main():
     physics = a.mode in ("c_direct", "c_jepa")
     a.head = "physics" if physics else "mlp"
     if physics and not a.prior:
-        ap.error("--prior est requis pour les modes c_direct et c_jepa")
+        ap.error("--prior is required for the c_direct and c_jepa modes")
     a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
     trunk_cfg = None
     if a.mode == "c_jepa":
         if not a.trunk:
-            ap.error("--trunk est requis pour le mode c_jepa")
+            ap.error("--trunk is required for the c_jepa mode")
         trunk_cfg = json.load(open(Path(a.trunk) / "config.json"))
-        for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # architecture du tronc
+        for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # trunk architecture
             setattr(a, k, trunk_cfg.get(k, getattr(a, k)))
 
     data, ch, meta = load_set(a.data_dir, a.set)
@@ -137,7 +137,7 @@ def main():
     S_va = WindowSampler(Xn[va], alive[va], a.H, T_max, seed=a.seed + 1, P=P[va])
     vrows = S_va.fixed_rows(a.val_windows)
     val_seq, val_ac = torch.from_numpy(S_va.gather(vrows)), torch.from_numpy(S_va.aircraft(vrows))
-    print(f"vols : {tr.sum()} entraînement, {va.sum()} validation ; fenêtres : {len(S_tr)} / {len(S_va)}", flush=True)
+    print(f"flights: {tr.sum()} training, {va.sum()} validation; windows: {len(S_tr)} / {len(S_va)}", flush=True)
 
     model = model_from_config(dict(vars(a), norm=norm.to_dict()))
     if trunk_cfg:
@@ -145,12 +145,12 @@ def main():
         trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt"))
         model.encoder.load_state_dict(trunk.encoder.state_dict())
         model.predictor.load_state_dict(trunk.predictor.state_dict())
-    print(f"paramètres : {model.n_params()} (total {sum(model.n_params().values())}) ; "
-          f"champ réceptif de l'encodeur {model.encoder.receptive_field} pas pour H = {a.H}", flush=True)
+    print(f"parameters: {model.n_params()} (total {sum(model.n_params().values())}); "
+          f"encoder receptive field {model.encoder.receptive_field} steps for H = {a.H}", flush=True)
     H = a.H
 
     def T_at(step, steps):
-        """Curriculum : de a.T à T_max pas, linéairement, atteint à curriculum_frac de l'étape."""
+        """Curriculum: from a.T to T_max steps, linearly, reached at curriculum_frac of the stage."""
         x = min(1.0, step / max(1, a.curriculum_frac * steps))
         return int(round(a.T + (T_max - a.T) * x))
 
@@ -162,7 +162,7 @@ def main():
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
 
     def state_loss(seq, ac, frozen=False):
-        """Erreur d'état normalisée et taille de la correction physique (0 pour le MLP)."""
+        """Normalized state error and size of the physics correction (0 for the MLP)."""
         with torch.set_grad_enabled(torch.is_grad_enabled() and not frozen):
             z0, zs, U = model.latents(seq, H, True, ac)
         pred, raw = model.head_states(z0, zs, U, seq, H, ac)
@@ -177,7 +177,7 @@ def main():
         z0, zp, U = model.latents(seq, H, True, ac)
         zt = model.target_latents(seq, H, ac)
         pred = ((zp - zt) ** 2).mean()
-        # SIGReg sur les latents prédits, moyenné dans le temps : estimé sur quelques pas tirés au hasard
+        # SIGReg on the predicted latents, averaged over time: estimated on a few randomly drawn steps
         ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
         reg = torch.stack([sigreg(zp[:, k], n_proj=a.sigreg_proj) for k in ks]).mean()
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
@@ -190,15 +190,15 @@ def main():
             return loss, dict(parts, T=T)
 
         def val1():
-            # erreur de prédiction normalisée par la dispersion des latents cibles : indépendante de la
-            # taille du lot, et pénalise l'effondrement (si tous les z se ressemblent, elle explose)
+            # prediction error normalized by the spread of the target latents: independent of the
+            # batch size, and penalizes collapse (if all the z look alike, it blows up)
             zp, zt = model.predict_latents(val_seq, H, True, val_ac), model.target_latents(val_seq, H, val_ac)
             return ((zp - zt) ** 2).mean() / zt.reshape(-1, zt.shape[-1]).var(0).mean()
 
         best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt)
         model.load_state_dict(torch.load(out / "model.pt"))
         for p_ in trunk_params:
-            p_.requires_grad_(False)                                  # étape 2 : tronc figé
+            p_.requires_grad_(False)                                  # stage 2: trunk frozen
 
         def loss2(step):
             return state_loss(*nxt(T_max), frozen=True)[0], {}

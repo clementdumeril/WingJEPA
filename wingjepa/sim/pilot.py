@@ -1,13 +1,13 @@
-"""Génération des commandes (3D) : autopilote TECS + pilote latéral + protection d'enveloppe.
+"""Command generation (3D): TECS autopilot + lateral pilot + envelope protection.
 
-Tout est pré-tiré par vol sous forme de profils (n, K) sur la grille de commande (20 Hz) :
-  - longitudinal : consignes h_ref / V_ref, perturbations additives profondeur / gaz,
-    fenêtres « boucle ouverte » (autopilote figé) et « moteur coupé » ;
-  - latéral : consigne d'inclinaison phi_ref (ligne droite, virages et cercles, virages en S),
-    perturbations additives ailerons / direction.
-Types de vols : 0 = stabilisé, 1 = excitation (2-1-1, 3-2-1-1, doublets, sur les 4 commandes),
-2 = consignes aléatoires suivies par le TECS, 3 = commandes aléatoires lissées.
-La protection d'enveloppe (dans le générateur) annule manœuvres et perturbations près du décrochage.
+Everything is drawn in advance per flight as profiles (n, K) on the command grid (20 Hz):
+  - longitudinal: h_ref / V_ref setpoints, additive elevator / throttle disturbances,
+    "open loop" (autopilot frozen) and "engine off" windows;
+  - lateral: bank setpoint phi_ref (straight line, turns and circles, S-turns),
+    additive aileron / rudder disturbances.
+Flight types: 0 = steady, 1 = excitation (2-1-1, 3-2-1-1, doublets, on the 4 controls),
+2 = random setpoints tracked by the TECS, 3 = smoothed random commands.
+The envelope protection (in the generator) cancels maneuvers and disturbances near stall.
 """
 import numpy as np
 
@@ -18,11 +18,11 @@ LAT_NAMES = ["droit", "virages", "virages_S"]
 MULTISTEP = {"2-1-1": [(2, 1), (1, -1), (1, 1)],
              "3-2-1-1": [(3, 1), (2, -1), (1, 1), (1, -1)],
              "doublet": [(1, 1), (1, -1)]}
-EXC_AXES = ["e", "t", "et", "a", "r", "ar"]   # profondeur, gaz, ailerons, direction
+EXC_AXES = ["e", "t", "et", "a", "r", "ar"]   # elevator, throttle, ailerons, rudder
 
 
 def _windows(rng, K, dt, rate_per_min, dur_range):
-    """Masque booléen (K,) de fenêtres aléatoires (processus de Poisson)."""
+    """Boolean mask (K,) of random windows (Poisson process)."""
     m = np.zeros(K, bool)
     if rate_per_min <= 0:
         return m
@@ -56,19 +56,19 @@ def make_profiles(rng, n, K, dt, cfg, h0, V0):
     tgrid = np.arange(K) * dt
 
     for i in range(n):
-        # --- latéral : consigne d'inclinaison
-        if lat[i] == 1:                                   # virages et cercles, alternés avec des lignes droites
+        # --- lateral: bank setpoint
+        if lat[i] == 1:                                   # turns and circles, alternating with straight lines
             k = 0
             while k < K:
                 L = int(rng.uniform(*lc["turn_hold_s"]) / dt)
                 if rng.random() < 0.6:
                     phi_ref[i, k:k + L] = np.deg2rad(rng.uniform(*lc["bank_deg"])) * rng.choice([-1, 1])
                 k += L
-        elif lat[i] == 2:                                 # virages en S
+        elif lat[i] == 2:                                 # S-turns
             amp = np.deg2rad(rng.uniform(*lc["s_bank_deg"]))
             per = rng.uniform(*lc["s_period_s"])
             phi_ref[i] = amp * np.sin(2 * np.pi * tgrid / per + rng.uniform(0, 2 * np.pi))
-        # --- longitudinal et perturbations selon le type
+        # --- longitudinal and disturbances depending on the type
         ty = types[i]
         if ty == REFERENCES:
             k = 0
@@ -93,7 +93,7 @@ def make_profiles(rng, n, K, dt, cfg, h0, V0):
                         add[{"e": "de", "t": "dt", "a": "da", "r": "dr"}[a]][i, k0:k1] = s * sgn[a] * amp[a]
                     k0 = k1
                 k_end = min(k0 + int(c["exc_free_s"] / dt), K)
-                open_loop[i, k:k_end] = True              # autopilote figé pendant la manœuvre et après
+                open_loop[i, k:k_end] = True              # autopilot frozen during the maneuver and after
                 k = k_end + int(rng.uniform(*c["exc_gap_s"]) / dt)
         elif ty == RANDOM:
             tau = rng.uniform(*c["rand_tau_s"])
@@ -109,16 +109,16 @@ def make_profiles(rng, n, K, dt, cfg, h0, V0):
 
 
 class TECS:
-    """Total Energy Control System simplifié (vectorisé).
+    """Simplified Total Energy Control System (vectorized).
 
-    Moteur  -> énergie totale        : e_T = (gamma_ref - gamma) + (Vdot_ref - Vdot)/g
-    Assiette -> répartition          : e_D = (gamma_ref - gamma) - (Vdot_ref - Vdot)/g
-    Boucle interne d'assiette        : de = de_ff - k_th (theta_cmd - theta) + k_q (q - q_ref)
-      (q_ref : vitesse de tangage d'un virage coordonné)
-    Moteur coupé : l'assiette tient la vitesse (priorité vitesse), comme en plané.
-    Limiteur d'incidence (comme un autopilote) : hors de [alpha_floor, alpha_ceil], la profondeur ramène
-    l'incidence dans le domaine (évite ressources et piqués trop brutaux).
-    Anticipations par vol (thr_ff, theta_ff, de_ff) : valeurs d'équilibre au départ.
+    Engine   -> total energy         : e_T = (gamma_ref - gamma) + (Vdot_ref - Vdot)/g
+    Attitude -> energy distribution  : e_D = (gamma_ref - gamma) - (Vdot_ref - Vdot)/g
+    Inner attitude loop              : de = de_ff - k_th (theta_cmd - theta) + k_q (q - q_ref)
+      (q_ref: pitch rate of a coordinated turn)
+    Engine off: attitude holds the speed (speed priority), as in a glide.
+    Angle-of-attack limiter (like an autopilot): outside [alpha_floor, alpha_ceil], the elevator brings
+    the angle of attack back into range (avoids overly abrupt pull-ups and dives).
+    Per-flight feedforwards (thr_ff, theta_ff, de_ff): trim values at the start.
     """
 
     def __init__(self, n, gains, thr_ff=None, theta_ff=None, de_ff=None, g=9.81):
@@ -142,7 +142,7 @@ class TECS:
         vd_ref = np.clip(k["k_V"] * (V_ref - Va), -k["vdot_max"], k["vdot_max"])
         e_T = (gam_ref - gamma) + (vd_ref - self.Vdot) / g
         e_D = (gam_ref - gamma) - (vd_ref - self.Vdot) / g
-        e_G = Va - V_ref                                    # plané : trop vite -> cabrer
+        e_G = Va - V_ref                                    # glide: too fast -> pitch up
 
         live = ~freeze
         on, off = live & ~engine_off, live & engine_off
@@ -161,8 +161,8 @@ class TECS:
 
 
 def lateral(phi_ref, phi, p, r, r_ref, beta, gains, da_ff, dr_ff):
-    """Pilote latéral : inclinaison par les ailerons, virage coordonné par la direction.
-    Conventions UMN : da > 0 -> roulis à gauche ; dr > 0 (TEL) -> lacet à gauche."""
+    """Lateral pilot: bank through the ailerons, coordinated turn through the rudder.
+    UMN conventions: da > 0 -> roll left; dr > 0 (TEL) -> yaw left."""
     k = gains
     da = da_ff - k["k_phi"] * (phi_ref - phi) + k["k_p"] * p
     dr = dr_ff + k["k_r"] * (r - r_ref) - k["k_beta"] * beta

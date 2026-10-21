@@ -1,45 +1,45 @@
-# Ultra Stick 120 (FASER, University of Minnesota UAV Lab) — avion de base du simulateur de vérité.
-# Transcrit de UMNUAV_sim_v4 (BSD, (c) 2011 Regents of the University of Minnesota) :
+# Ultra Stick 120 (FASER, University of Minnesota UAV Lab) - base aircraft of the ground-truth simulator.
+# Transcribed from UMNUAV_sim_v4 (BSD, (c) 2011 Regents of the University of Minnesota):
 #   Simulation/Libraries/FASER_config.m, Propulsion_Lib.mdl, Actuator_Lib.mdl, FASER_Aero_Lib.mdl.
-# Aéro : tables de soufflerie NASA Langley, FASER_Aero.mat (récupéré par scripts/fetch_umn.sh).
-# SI, radians sauf mention contraire.
+# Aero: NASA Langley wind-tunnel tables, FASER_Aero.mat (fetched by scripts/fetch_umn.sh).
+# SI units, radians unless stated otherwise.
 
 aircraft: ultrastick120
 aero_model: faser_tables
 aero_file: third_party/umn/FASER_Aero.mat
 
-mass: 6.804                    # kg, FASER_config.m (15 lb, avionique comprise)
+mass: 6.804                    # kg, FASER_config.m (15 lb, avionics included)
 Ixx: 0.672485702               # kg m2
 Iyy: 0.889416574
 Izz: 1.57817209
-Ixz: -0.759258051              # matrice d'inertie [[Ixx 0 -Ixz] [0 Iyy 0] [-Ixz 0 Izz]] (convention UMN)
-c: 0.433578                    # m, corde moyenne
+Ixz: -0.759258051              # inertia matrix [[Ixx 0 -Ixz] [0 Iyy 0] [-Ixz 0 Izz]] (UMN convention)
+c: 0.433578                    # m, mean chord
 b: 1.917192                    # m
 S: 0.769237171                 # m2
-# CG = centre aérodynamique (quart de corde) et poussée dans l'axe x : pas de bras de levier en tangage.
+# CG = aerodynamic center (quarter chord) and thrust along the x axis: no pitch lever arm.
 
-# propulsion (FASER_config.m ; la bibliothèque Simulink code en dur les polynômes du 25e,
-# on suit les valeurs déclarées pour FASER : rayon 0,1778 m et puissance x6)
+# propulsion (FASER_config.m; the Simulink library hard-codes the 25e polynomials,
+# we follow the values declared for FASER: radius 0.1778 m and power x6)
 prop_radius: 0.1778            # m
-prop_CT: [-0.4314, 1.08, -0.896, 0.1089, 0.0604]      # polynôme en J, ordre décroissant (polyval)
+prop_CT: [-0.4314, 1.08, -0.896, 0.1089, 0.0604]      # polynomial in J, decreasing order (polyval)
 prop_CP: [0.5054, -0.5304, 0.0412, 0.01664, 0.0223]
-motor_power: [1046.76, 420.81, -26.34]               # W, polynôme du gaz (= [174.46 70.135 -4.39] x 6)
+motor_power: [1046.76, 420.81, -26.34]               # W, throttle polynomial (= [174.46 70.135 -4.39] x 6)
 motor_power_max: 1900.0        # W, ThrottleOutputLimit.Upper
-omega_max: 1570.796            # rad/s (15 000 tr/min)
+omega_max: 1570.796            # rad/s (15,000 rpm)
 omega_min: 1.0
-Jmp: 0.00012991                # kg m2, moteur + hélice
+Jmp: 0.00012991                # kg m2, motor + propeller
 
-# gouvernes [profondeur, ailerons, direction] : 1er ordre w/(s+w), w = 2 pi BW, vitesse et débattement
-# limités (Actuator_Lib.mdl). Conventions UMN : profondeur +TED (piqueur), ailerons (da_d - da_g)/2 +TED,
-# direction +TEL.
+# control surfaces [elevator, ailerons, rudder]: first order w/(s+w), w = 2 pi BW, rate and deflection
+# limited (Actuator_Lib.mdl). UMN conventions: elevator +TED (nose down), ailerons (da_r - da_l)/2 +TED,
+# rudder +TEL.
 act_bw_hz: 8.0
 act_rate_max: 2.618            # rad/s (150 deg/s)
 act_max: [0.4363, 0.4363, 0.4363]     # rad (25 deg)
 act_min: [-0.4363, -0.4363, -0.4363]
 
-# effet du souffle de l'hélice sur les tables (rapport d'avance J) :
-#   "actual"  : J calculé à partir de la vitesse de l'hélice (utilisé pour générer les données)
-#   "umn_v4"  : comme UMNUAV_sim_v4 tel quel (constante 1, saturée au maximum des tables, 0,7)
+# effect of the propeller slipstream on the tables (advance ratio J):
+#   "actual"  : J computed from the propeller speed (used to generate the data)
+#   "umn_v4"  : as in UMNUAV_sim_v4 (constant 1, saturated at the table maximum, 0.7)
 j_mode: actual
 
 g: 9.80665

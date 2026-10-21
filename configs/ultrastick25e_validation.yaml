@@ -1,6 +1,6 @@
-# Ultra Stick 25e (University of Minnesota) — sert UNIQUEMENT à valider notre traduction des équations
-# (mouvement, propulsion) contre la trajectoire de référence de leur simulateur non linéaire
-# (Simulation/NL_Sim/Verification/doublet_longmodel.mat). Valeurs : UAV_modelconfig.mat / Ultrastick_config.m.
+# Ultra Stick 25e (University of Minnesota): used ONLY to validate our translation of the equations
+# (motion, propulsion) against the reference trajectory of their nonlinear simulator
+# (Simulation/NL_Sim/Verification/doublet_longmodel.mat). Values: UAV_modelconfig.mat / Ultrastick_config.m.
 
 aircraft: ultrastick25e
 aero_model: linear_25e

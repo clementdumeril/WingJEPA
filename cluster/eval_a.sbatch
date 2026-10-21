@@ -1,6 +1,6 @@
 #!/bin/bash
-# Réévalue des modèles déjà entraînés (sans réentraîner).
-# Usage : sbatch cluster/eval_a.sbatch runs/jepa_s0 runs/a0_s0
+# Re-evaluates already-trained models (no retraining).
+# Usage: sbatch cluster/eval_a.sbatch runs/jepa_s0 runs/a0_s0
 #SBATCH --job-name=wingjepa-eval
 #SBATCH --account=ic_piml
 #SBATCH --partition=savio4_htc

@@ -1,19 +1,19 @@
-"""Diagnostics des world models déjà entraînés (docs/journal.md, § 8).
+"""Diagnostics of the already-trained world models (docs/journal.md, section 8).
 
-Q1. Pourquoi A0 est meilleur à court terme que JEPA ?
-    - erreur par grandeur à 0,25 / 0,5 / 1 / 2 / 5 s (normalisée par l'écart-type de la grandeur) ;
-    - « sonde » : un petit décodeur neuf appris à lire l'état PRÉSENT dans le latent z(t) de l'encodeur.
-      Si l'état présent est mal lisible, l'information est perdue dès l'encodage.
-Q2. Pourquoi JEPA est meilleur sur l'altitude à long terme ?
-    - références supplémentaires : altitude constante (vitesse verticale nulle) ;
-    - dispersion des vitesses verticales prédites / vraies selon l'horizon : un modèle qui « rétrécit »
-      ses prédictions vers la moyenne dérive peu en altitude sans pour autant connaître la dynamique.
-Q3. Pourquoi aucun modèle ne généralise aux avions extrêmes ?
-    - corrélation (Spearman) entre l'horizon utile et l'écart de chaque paramètre de l'avion à la
-      valeur nominale, sur les avions de test ;
-    - quelles grandeurs se dégradent à 1 s entre avions d'entraînement et avions de test.
+Q1. Why is A0 better than JEPA at short range?
+    - error per quantity at 0.25 / 0.5 / 1 / 2 / 5 s (normalized by the standard deviation of the quantity);
+    - "probe": a small new decoder trained to read the PRESENT state from the encoder latent z(t).
+      If the present state is poorly readable, the information is lost at encoding time.
+Q2. Why is JEPA better on altitude at long range?
+    - additional references: constant altitude (zero vertical speed);
+    - spread of predicted / true vertical speeds as a function of horizon: a model that "shrinks"
+      its predictions towards the mean drifts little in altitude without actually knowing the dynamics.
+Q3. Why does no model generalize to extreme aircraft?
+    - correlation (Spearman) between the useful horizon and the deviation of each aircraft parameter from
+      its nominal value, on the test aircraft;
+    - which quantities degrade at 1 s between training aircraft and test aircraft.
 
-Usage : python scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
+Usage: python scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
 """
 import argparse
 import os
@@ -35,7 +35,7 @@ NOMINAL = dict(mass=6.804, Ixx=0.672485702, Iyy=0.889416574, Izz=1.57817209)
 
 
 def probe_present_state(model, norm, X, alive, P, tr, va, H, steps=1500):
-    """Erreur normalisée (validation) d'un décodeur neuf qui lit l'état présent dans z(t)."""
+    """Normalized (validation) error of a new decoder that reads the present state from z(t)."""
     torch.manual_seed(0)
     Xn = norm(X)
     St = WindowSampler(Xn[tr], alive[tr], H, 1, seed=0, P=P[tr])
@@ -81,8 +81,8 @@ def main():
         tr, va = split_mask(mtr, "train", cfg["seed"]), split_mask(mtr, "val", cfg["seed"])
         print(f"\n################ {d}")
 
-        # ---------- Q1 : court terme
-        print("[Q1] erreur RMS / écart-type de la grandeur, avions d'entraînement (vols longs) :")
+        # ---------- Q1: short range
+        print("[Q1] RMS error / standard deviation of the quantity, training aircraft (long flights):")
         L = int(60 / DT)
         out = {}
         for gname, gm in (("entrainement", ~test_ac), ("test", test_ac)):
@@ -95,20 +95,20 @@ def main():
         seq, hs, fl, idx, pred = out["entrainement"]
         true = seq[:, H:, :N_STATE]
         hor = [0.25, 0.5, 1, 2, 5]
-        print("      grandeur " + "".join(f"{t:>8g}s" for t in hor))
+        print("      quantity " + "".join(f"{t:>8g}s" for t in hor))
         for i, k in enumerate(STATE):
             r = [np.sqrt(np.mean((pred[:, int(t / DT) - 1, i] - true[:, int(t / DT) - 1, i]) ** 2)) / std[i] for t in hor]
             print(f"      {k:8s} " + "".join(f"{v:9.3f}" for v in r))
         pr = probe_present_state(model, norm, Xtr, atr, Ptr, tr, va, H)
-        print(f"      sonde (état présent lu dans z(t), erreur normalisée, 0 = parfait, 1 = rien) : {pr}")
+        print(f"      probe (present state read from z(t), normalized error, 0 = perfect, 1 = nothing): {pr}")
 
-        # ---------- Q2 : altitude à long terme
-        print("[Q2] altitude à long terme, avions d'entraînement :")
+        # ---------- Q2: altitude at long range
+        print("[Q2] altitude at long range, training aircraft:")
         e = errors(pred, seq, hs, H)
         hdot_i = STATE.index("hdot")
         zero = np.zeros_like(pred)
         zero[:, :, :] = seq[:, H - 1:H, :N_STATE]
-        zero[:, :, hdot_i] = 0.0                                          # altitude constante
+        zero[:, :, hdot_i] = 0.0                                          # constant altitude
         e0 = errors(zero, seq, hs, H)
         const = np.repeat(seq[:, H - 1:H, :N_STATE], L, 1)
         ec = errors(const, seq, hs, H)
@@ -116,21 +116,21 @@ def main():
             k = int(t / DT) - 1
             rms = lambda x: np.sqrt(np.mean(x[:, k] ** 2))
             ratio = pred[:, k, hdot_i].std() / true[:, k, hdot_i].std()
-            print(f"      {t:3d} s : RMS altitude modèle {rms(e['h']):6.1f} m | altitude constante {rms(e0['h']):6.1f} m | "
-                  f"vitesse verticale constante {rms(ec['h']):6.1f} m | dispersion vz prédite / vraie {ratio:.2f} | "
-                  f"biais vz {np.mean(pred[:, k, hdot_i] - true[:, k, hdot_i]):+.2f} m/s")
+            print(f"      {t:3d} s : RMS altitude model {rms(e['h']):6.1f} m | constant altitude {rms(e0['h']):6.1f} m | "
+                  f"constant vertical speed {rms(ec['h']):6.1f} m | predicted / true vz spread {ratio:.2f} | "
+                  f"vz bias {np.mean(pred[:, k, hdot_i] - true[:, k, hdot_i]):+.2f} m/s")
 
-        # ---------- Q3 : généralisation
+        # ---------- Q3: generalization
         if "test" in out:
             seq_t, hs_t, fl_t, idx_t, pred_t = out["test"]
             et = errors(pred_t, seq_t, hs_t, H)
             hz, _ = useful_horizon(et)
-            print(f"[Q3] avions de test : horizon utile médian {np.median(hz):.2f} s ; corrélation de Spearman "
-                  "entre horizon utile et écart du paramètre à sa valeur nominale (négatif = l'écart nuit) :")
+            print(f"[Q3] test aircraft: median useful horizon {np.median(hz):.2f} s; Spearman correlation "
+                  "between useful horizon and deviation of the parameter from its nominal value (negative = the deviation hurts):")
             fid = idx_t[fl_t]
             devs = {k: np.abs(ml[k][fid] / v - 1) for k, v in NOMINAL.items()}
-            devs["puissance"] = np.abs(ml["power_scale"][fid] - 1)
-            devs["centrage"] = np.abs(ml["cg_shift"][fid])
+            devs["power"] = np.abs(ml["power_scale"][fid] - 1)
+            devs["cg_shift"] = np.abs(ml["cg_shift"][fid])
             for c in ("CD", "CY", "CL", "Cl", "Cm", "Cn"):
                 devs[f"aero_{c}"] = np.abs(ml[f"aero_scale_{c}"][fid] - 1)
             for k, v in devs.items():
@@ -139,7 +139,7 @@ def main():
             seq_e, hs_e, _, _, pred_e = out["entrainement"]
             ee = errors(pred_e, seq_e, hs_e, H)
             k1 = int(1 / DT) - 1
-            print("      erreur RMS à 1 s, avions d'entraînement -> avions de test :")
+            print("      RMS error at 1 s, training aircraft -> test aircraft:")
             for k in ("Va", "alpha", "beta", "phi", "theta", "p", "q", "r", "hdot"):
                 print(f"         {k:6s} {np.sqrt(np.mean(ee[k][:, k1] ** 2)):7.3f} -> {np.sqrt(np.mean(et[k][:, k1] ** 2)):7.3f}")
 

@@ -1,14 +1,14 @@
-"""Vent par vol (3D) : vent moyen + rafales (1 - cos) + turbulence de Dryden, et vent estimé.
+"""Per-flight wind (3D): mean wind + (1 - cos) gusts + Dryden turbulence, and estimated wind.
 
-Comme UMNUAV_sim_v4 : le vent moyen ne fait que déplacer l'avion ; rafales et turbulence sont
-« instationnaires » et entrent dans l'aérodynamique (axes avion).
-Repère inertiel NED : nord, est, bas (vent descendant positif).
+As in UMNUAV_sim_v4: the mean wind only displaces the aircraft; gusts and turbulence are
+"unsteady" and enter the aerodynamics (body axes).
+Inertial NED frame: north, east, down (downward wind positive).
 
-Dryden basse altitude, MIL-F-8785C (formules en pieds), comme le bloc de l'Aerospace Blockset utilisé
-par UMN : L_w = h, L_u = L_v = h / (0.177 + 0.000823 h)^1.2, sigma_w = 0.1 W20,
+Low-altitude Dryden, MIL-F-8785C (formulas in feet), like the Aerospace Blockset block used
+by UMN: L_w = h, L_u = L_v = h / (0.177 + 0.000823 h)^1.2, sigma_w = 0.1 W20,
 sigma_u = sigma_v = sigma_w / (0.177 + 0.000823 h)^0.4.
-u : filtre du 1er ordre (discrétisation exacte) ; v, w : (1 + sqrt(3) T s) / (1 + T s)^2, T = L / Va
-(Euler-Maruyama, variance stationnaire sigma^2). Turbulence angulaire non modélisée.
+u: first-order filter (exact discretization); v, w: (1 + sqrt(3) T s) / (1 + T s)^2, T = L / Va
+(Euler-Maruyama, stationary variance sigma^2). Angular turbulence not modeled.
 """
 import numpy as np
 
@@ -27,7 +27,7 @@ class Wind:
         probs = np.array([cfg["turbulence_probs"][k] for k in levels], dtype=float)
         self.turb_level = np.array(levels)[rng.choice(len(levels), size=n, p=probs / probs.sum())]
         self.w20 = np.array([W20[level] for level in self.turb_level])
-        # rafales : (vol, début, durée, amplitude N, E, D)
+        # gusts: (flight, start, duration, amplitude N, E, D)
         rate = cfg["gust_rate_per_min"] / 60.0
         gusts = []
         for i in range(n):
@@ -37,17 +37,17 @@ class Wind:
                 gusts.append((i, t, dur, *rng.uniform(-1, 1, 3) * cfg["gust_amplitude_max"]))
                 t += dur + rng.exponential(1 / rate)
         self.gusts = np.array(gusts).reshape(-1, 6)
-        # états des filtres de Dryden (u ; v et w à deux états)
+        # Dryden filter states (u; v and w have two states each)
         self.u_g = np.zeros(n)
         self.v1, self.v2, self.w1, self.w2 = (np.zeros(n) for _ in range(4))
-        # vent estimé : passe-bas du vrai vent (sans turbulence) + biais lent, comme un estimateur embarqué
+        # estimated wind: low-pass of the true wind (no turbulence) + slow bias, like an onboard estimator
         self.est_tau = cfg["estimate_tau_s"]
         self.bias_sigma, self.bias_T = cfg["estimate_bias_sigma"], cfg["estimate_bias_T_s"]
         self.est = self.steady.copy()
         self.bias = rng.normal(0, 1, (n, 3)) * self.bias_sigma * np.array([1, 1, 1 / 3])
 
     def gust(self, t):
-        """Rafales au temps t, repère NED (n, 3)."""
+        """Gusts at time t, NED frame (n, 3)."""
         g = np.zeros((self.n, 3))
         if len(self.gusts):
             i, t0, dur = self.gusts[:, 0], self.gusts[:, 1], self.gusts[:, 2]
@@ -63,7 +63,7 @@ class Wind:
         return x1n, x2n, x1n + np.sqrt(3) * T * x2n
 
     def step_turbulence(self, Va, h, dt):
-        """Avance la turbulence d'un pas ; renvoie (n, 3) en axes avion."""
+        """Advance the turbulence by one step; returns (n, 3) in body axes."""
         Va = np.maximum(Va, 5.0)
         h_ft = np.clip(h, 10.0, 300.0) / FT
         k = 0.177 + 0.000823 * h_ft
@@ -77,7 +77,7 @@ class Wind:
         return np.stack([self.u_g, v_g, w_g], 1)
 
     def step_estimate(self, wind_true_ned, dt):
-        """Vent estimé (n, 3) : vrai vent (moyen + rafales) filtré + biais lent (Ornstein-Uhlenbeck)."""
+        """Estimated wind (n, 3): filtered true wind (mean + gusts) + slow bias (Ornstein-Uhlenbeck)."""
         b = np.exp(-dt / self.bias_T)
         sig = self.bias_sigma * np.array([1, 1, 1 / 3])
         self.bias = b * self.bias + sig * np.sqrt(1 - b**2) * self.rng.standard_normal((self.n, 3))

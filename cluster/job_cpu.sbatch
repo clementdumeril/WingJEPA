@@ -1,5 +1,5 @@
 #!/bin/bash
-# Job CPU unique. Usage : sbatch cluster/job_cpu.sbatch <script.py> [arguments]
+# Single CPU job. Usage: sbatch cluster/job_cpu.sbatch <script.py> [arguments]
 #SBATCH --job-name=wingjepa
 #SBATCH --account=ic_piml
 #SBATCH --partition=savio4_htc

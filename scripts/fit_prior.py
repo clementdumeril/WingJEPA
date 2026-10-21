@@ -1,16 +1,16 @@
-"""Construit les quatre a priori de la tête physique du modèle C (docs/model_design.md, § 11).
+"""Builds the four priors of the physics head of model C (docs/model_design.md, section 11).
 
-  ajuste    : moindres carrés sur les coefficients aéro (CD, CY, CL, Cl, Cm, Cn) et la poussée enregistrés
-              par le simulateur, vols d'entraînement seulement. Le modèle (régresseurs : TERMS dans
-              wingjepa/models/physics.py) est plus simple que les tables NASA (pas d'effet du souffle de
-              l'hélice, pas de décrochage) : même « ajusté », l'a priori n'est pas parfait (R2 affiché).
-  generique : coefficients publiés de l'Ultra Stick 25e (petit frère, configs/ultrastick25e_validation.yaml),
-              traînée linéarisée en alpha ; poussée = celle ajustée (le moteur est connu par son banc d'essai).
-  faux      : ajusté, chaque coefficient multiplié par 1 +/- 30 % (signe tiré au hasard, graine fixe).
-  nul       : tout à zéro (C0 : seules la gravité et les équations du mouvement restent).
-Sorties : <out>/<nom>.json, à passer à train_a.py --prior.
+  ajuste    : least squares on the aero coefficients (CD, CY, CL, Cl, Cm, Cn) and the thrust recorded
+              by the simulator, training flights only. The model (regressors: TERMS in
+              wingjepa/models/physics.py) is simpler than the NASA tables (no propeller slipstream effect,
+              no stall): even when fitted, the prior is not perfect (R2 printed).
+  generique : published coefficients of the Ultra Stick 25e (little brother, configs/ultrastick25e_validation.yaml),
+              drag linearized in alpha; thrust = the fitted one (the motor is known from its test bench).
+  faux      : fitted, each coefficient multiplied by 1 +/- 30 % (sign drawn at random, fixed seed).
+  nul       : everything zero (C0: only gravity and the equations of motion remain).
+Outputs: <out>/<name>.json, to be passed to train_a.py --prior.
 
-Usage : python scripts/fit_prior.py --data-dir <out_dir>/data_v1
+Usage: python scripts/fit_prior.py --data-dir <out_dir>/data_v1
 """
 import argparse
 import json
@@ -50,7 +50,7 @@ def generic_25e(g, thrust):
     lat = lambda t: [t["beta"], t["dail"], t["drud"], t["p"], t["r"]]
     return {
         "CL": [CL["zero"], CL["alpha"], 0.0, CL["delev"], CL["q"]],
-        # CD = min + (CL - minD)^2 / (pi AR e) + |...|, avec CL = zero + alpha * a (termes croisés négligés)
+        # CD = min + (CL - minD)^2 / (pi AR e) + |...|, with CL = zero + alpha * a (cross terms neglected)
         "CD": [CD["min"] + k * d * d, 2 * k * d * CL["alpha"], k * CL["alpha"] ** 2, 0.0,
                CD["delev"], CD["dail"], CD["drud"]],
         "CY": lat(CY), "Cl": lat(Cl), "Cn": lat(Cn),
@@ -65,7 +65,7 @@ def main():
     ap.add_argument("--set", default="train")
     ap.add_argument("--config", default="configs/ultrastick120.yaml")
     ap.add_argument("--generic", default="configs/ultrastick25e_validation.yaml")
-    ap.add_argument("--out", default=None, help="défaut : <data-dir>/priors")
+    ap.add_argument("--out", default=None, help="default: <data-dir>/priors")
     ap.add_argument("--wrong-frac", type=float, default=0.3)
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
@@ -76,7 +76,7 @@ def main():
     data, ch, meta = load_set(a.data_dir, a.set)
     alive = data[:, :, ch.index("alive")] > 0.5
     mask = alive & (meta["split"] == "train")[:, None]
-    print(f"ajustement sur {mask.sum()} pas de {(meta['split'] == 'train').sum()} vols d'entraînement")
+    print(f"fitting on {mask.sum()} steps of {(meta['split'] == 'train').sum()} training flights")
     coef, r2, rho = fit(data, ch, mask, p)
 
     rng = np.random.default_rng(a.seed)
@@ -92,15 +92,15 @@ def main():
         if name == "ajuste":
             d["r2"] = r2
         json.dump(d, open(out / f"{name}.json", "w"), indent=1)
-    print(f"masse volumique retenue : {rho:.4f} kg/m3")
-    print("R2 de l'a priori ajusté (part de la variance expliquée par le modèle simplifié) :")
+    print(f"air density used: {rho:.4f} kg/m3")
+    print("R2 of the fitted prior (share of the variance explained by the simplified model):")
     for k in COEFS:
         print(f"   {k:3s} R2 = {r2[k]:.3f}")
-    print("coefficients (ajusté | générique 25e) :")
+    print("coefficients (fitted | generic 25e):")
     for k in COEFS:
         for t, x, y in zip(TERMS[k], priors["ajuste"][k], priors["generique"][k]):
             print(f"   {k:3s} {t:7s} {x:+9.4f} | {y:+9.4f}")
-    print(f"a priori écrits dans {out}")
+    print(f"priors written to {out}")
 
 
 if __name__ == "__main__":

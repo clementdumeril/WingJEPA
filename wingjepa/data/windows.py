@@ -48,6 +48,16 @@ def features(data, ch, dt=0.05):
     return X, alive, c["h"].astype(np.float32)
 
 
+def true_wind_features(data, ch):
+    """Vrai vent (moyen + rafales, sans la turbulence) dans le repère du cap, (n, K, 3) : sert à
+    l'évaluation « vent connu », pour séparer l'erreur du modèle de ce qui est imprévisible."""
+    c = {k: data[:, :, i].astype(np.float64) for i, k in enumerate(ch)}
+    psi = c["psi"]
+    along = c["wind_n"] * np.cos(psi) + c["wind_e"] * np.sin(psi)
+    cross = -c["wind_n"] * np.sin(psi) + c["wind_e"] * np.cos(psi)
+    return np.stack([along, cross, c["wind_d"]], -1).astype(np.float32)
+
+
 def window_starts(alive, length):
     """Liste (vol, début) des fenêtres de `length` pas entièrement valides."""
     n, K = alive.shape

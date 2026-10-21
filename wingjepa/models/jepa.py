@@ -93,17 +93,21 @@ class WorldModel(nn.Module):
         self.decoder = MLPDecoder(z_dim, dec_hidden)
 
     @staticmethod
-    def future_inputs(seq, H):
-        """Entrées du prédicteur pour les pas futurs : commandes réellement appliquées, vent estimé
-        TENU CONSTANT à sa dernière valeur connue (en usage, on ne connaît pas le vent futur)."""
+    def future_inputs(seq, H, hold_wind=True):
+        """Entrées du prédicteur pour les pas futurs : commandes réellement appliquées, et vent estimé
+        TENU CONSTANT à sa dernière valeur connue (en usage, on ne connaît pas le vent futur).
+        hold_wind=False : on donne le vent de chaque pas (évaluation « vent connu »)."""
         ctrl = seq[:, H - 1:-1, N_STATE:N_STATE + N_CTRL]            # commande appliquée de k à k+1
-        wind = seq[:, H - 1:H, N_STATE + N_CTRL:].expand(-1, ctrl.shape[1], -1)
+        if hold_wind:
+            wind = seq[:, H - 1:H, N_STATE + N_CTRL:].expand(-1, ctrl.shape[1], -1)
+        else:
+            wind = seq[:, H - 1:-1, N_STATE + N_CTRL:]
         return torch.cat([ctrl, wind], -1)
 
-    def predict_latents(self, seq, H):
+    def predict_latents(self, seq, H, hold_wind=True):
         """seq : (B, H+T, 16) -> latents prédits (B, T, D) pour les pas t+1..t+T."""
         z0 = self.encoder(seq[:, :H, :N_STATE])
-        return self.predictor.rollout(z0, self.future_inputs(seq, H))
+        return self.predictor.rollout(z0, self.future_inputs(seq, H, hold_wind))
 
     def target_latents(self, seq, H):
         """Encodeur appliqué aux vraies fenêtres finissant en t+1..t+T -> (B, T, D)."""

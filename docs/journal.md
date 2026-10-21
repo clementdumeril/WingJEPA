@@ -149,3 +149,19 @@ Erreur d'altitude à 60 s (moins = mieux) :
 
 **À faire** : ajouter la référence « altitude constante » à l'évaluation ; trancher, pour le modèle C,
 comment le modèle connaît l'avion (historique plus long, paramètres en entrée) ; 3 graines en cours.
+
+## 10. Modèle C : décisions et plan (21 oct. 2026)
+
+Décisions (détail : `model_design.md` § 11) :
+1. **Le modèle doit savoir sur quel avion il vole** : 2 s de passé (encodeur à 5 couches pour les voir) et
+   masse + inerties en entrée, **pour tous les modèles** (A0-v2, A-v2 réentraînés).
+2. **Deux variantes de C** : C-direct (tout appris ensemble, contre A0-v2) et C-JEPA (tronc JEPA figé +
+   tête physique, contre A-v2, comme SkyJEPA).
+3. **Équations de Newton complètes en 3D** dans la tête.
+4. **Trois niveaux d'a priori + contrôle** : ajusté, générique (Ultra Stick 25e), faux (+/- 30 %), nul (C0).
+5. **Correction = 6 forces et moments** ajoutés avant Newton (vraie masse, vraies inerties), pénalité de
+   taille.
+
+Plan (une graine, puis 3) : smoke test (`cluster/smoke_c.sbatch`, construit aussi les a priori), puis
+A0-v2, A-v2, C-direct x 4 a priori, et C-JEPA x 4 a priori une fois A-v2 fini. Le code n'a pas été exécuté
+sur le PC : tout est vérifié sur Savio.

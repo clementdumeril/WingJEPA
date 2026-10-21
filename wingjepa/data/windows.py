@@ -18,6 +18,8 @@ CONTROLS = ["de_cmd", "da_cmd", "dr_cmd", "dt_cmd"]
 WIND = ["wind_along", "wind_cross", "wind_down"]
 FEATURES = STATE + CONTROLS + WIND
 N_STATE, N_CTRL, N_WIND = len(STATE), len(CONTROLS), len(WIND)
+# paramètres connus de l'avion (pesée, essai pendulaire), donnés aux modèles v2 et aux équations du modèle C
+AIRCRAFT = ["mass", "Ixx", "Iyy", "Izz", "Ixz"]
 
 
 def load_set(data_dir, set_name):
@@ -46,6 +48,11 @@ def features(data, ch, dt=0.05):
     # la dérivée de h n'est fiable que si les deux voisins sont valides
     alive[:, 1:-1] &= alive[:, :-2] & alive[:, 2:]
     return X, alive, c["h"].astype(np.float32)
+
+
+def aircraft_params(meta):
+    """(n, 5) float32 : masse et inerties de chaque vol, dans l'ordre AIRCRAFT."""
+    return np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
 
 
 def true_wind_features(data, ch):
@@ -107,10 +114,11 @@ def split_mask(meta, split, seed=0):
 
 
 class WindowSampler:
-    """Tire des lots de fenêtres (passé H + futur T) directement depuis un tableau en mémoire."""
+    """Tire des lots de fenêtres (passé H + futur T) directement depuis un tableau en mémoire.
+    P (n, 5), facultatif : paramètres de l'avion de chaque vol (aircraft_params)."""
 
-    def __init__(self, Xn, alive, H, T, seed=0):
-        self.X, self.H, self.T = Xn, H, T
+    def __init__(self, Xn, alive, H, T, seed=0, P=None):
+        self.X, self.H, self.T, self.P = Xn, H, T, P
         self.idx = window_starts(alive, H + T)
         self.rng = np.random.default_rng(seed)
         self.offsets = np.arange(H + T)
@@ -122,9 +130,17 @@ class WindowSampler:
         f, s = self.idx[rows, 0], self.idx[rows, 1]
         return self.X[f[:, None], s[:, None] + self.offsets]          # (B, H+T, 16)
 
+    def aircraft(self, rows):
+        return self.P[self.idx[rows, 0]]                               # (B, 5)
+
+    def sample_rows(self, B):
+        return self.rng.integers(0, len(self.idx), B)
+
+    def fixed_rows(self, B, seed=123):
+        return np.random.default_rng(seed).choice(len(self.idx), min(B, len(self.idx)), replace=False)
+
     def batch(self, B):
-        return self.gather(self.rng.integers(0, len(self.idx), B))
+        return self.gather(self.sample_rows(B))
 
     def fixed(self, B, seed=123):
-        rows = np.random.default_rng(seed).choice(len(self.idx), min(B, len(self.idx)), replace=False)
-        return self.gather(rows)
+        return self.gather(self.fixed_rows(B, seed))

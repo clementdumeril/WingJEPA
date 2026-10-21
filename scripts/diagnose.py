@@ -16,7 +16,6 @@ Q3. Pourquoi aucun modèle ne généralise aux avions extrêmes ?
 Usage : python scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
 """
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -27,38 +26,33 @@ from scipy.stats import spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evaluate import DT, errors, make_rollouts, predict, useful_horizon  # noqa: E402
-from wingjepa.data.windows import (N_STATE, STATE, Normalizer, WindowSampler, features, load_set,  # noqa: E402
-                                   split_mask)
-from wingjepa.models.jepa import MLPDecoder, WorldModel  # noqa: E402
+from evaluate import DT, errors, load_model, make_rollouts, predict, useful_horizon  # noqa: E402
+from wingjepa.data.windows import (N_STATE, STATE, WindowSampler, aircraft_params, features,  # noqa: E402
+                                   load_set, split_mask)
+from wingjepa.models.jepa import MLPDecoder  # noqa: E402
 
 NOMINAL = dict(mass=6.804, Ixx=0.672485702, Iyy=0.889416574, Izz=1.57817209)
 
 
-def load_model(d):
-    cfg = json.load(open(Path(d) / "config.json"))
-    m = WorldModel(z_dim=cfg["z_dim"])
-    m.load_state_dict(torch.load(Path(d) / "model.pt"))
-    m.eval()
-    return m, cfg, Normalizer.from_dict(cfg["norm"])
-
-
-def probe_present_state(model, norm, X, alive, tr, va, H, steps=1500):
+def probe_present_state(model, norm, X, alive, P, tr, va, H, steps=1500):
     """Erreur normalisée (validation) d'un décodeur neuf qui lit l'état présent dans z(t)."""
     torch.manual_seed(0)
     Xn = norm(X)
-    St = WindowSampler(Xn[tr], alive[tr], H, 1, seed=0)
-    vs = torch.from_numpy(WindowSampler(Xn[va], alive[va], H, 1, seed=1).fixed(4096))
+    St = WindowSampler(Xn[tr], alive[tr], H, 1, seed=0, P=P[tr])
+    Sv = WindowSampler(Xn[va], alive[va], H, 1, seed=1, P=P[va])
+    vr = Sv.fixed_rows(4096)
+    vs, vac = torch.from_numpy(Sv.gather(vr)), torch.from_numpy(Sv.aircraft(vr))
     probe = MLPDecoder(model.encoder.out.out_features)
     opt = torch.optim.Adam(probe.parameters(), 3e-3)
     for _ in range(steps):
-        s = torch.from_numpy(St.batch(1024))
+        rows = St.sample_rows(1024)
+        s, ac = torch.from_numpy(St.gather(rows)), torch.from_numpy(St.aircraft(rows))
         with torch.no_grad():
-            z = model.encoder(s[:, :H, :N_STATE])
+            z = model.encoder(s[:, :H, :N_STATE], model.ctx(ac))
         loss = ((probe(z) - s[:, H - 1, :N_STATE]) ** 2).mean()
         opt.zero_grad(); loss.backward(); opt.step()
     with torch.no_grad():
-        e = ((probe(model.encoder(vs[:, :H, :N_STATE])) - vs[:, H - 1, :N_STATE]) ** 2).mean(0)
+        e = ((probe(model.encoder(vs[:, :H, :N_STATE], model.ctx(vac))) - vs[:, H - 1, :N_STATE]) ** 2).mean(0)
     return dict(zip(STATE, e.numpy().round(3).tolist()))
 
 
@@ -74,8 +68,10 @@ def main():
 
     dtr, ch, mtr = load_set(a.data_dir, a.train_set)
     Xtr, atr, _ = features(dtr, ch)
+    Ptr = aircraft_params(mtr)
     dl, chl, ml = load_set(a.data_dir, a.long_set)
     Xl, al, hl = features(dl, chl)
+    Pl = aircraft_params(ml)
     std = Xtr[atr].std(0)[:N_STATE]
     test_ac = ml["is_test_aircraft"].astype(bool) if ml["is_test_aircraft"].any() else np.zeros(len(Xl), bool)
 
@@ -94,7 +90,7 @@ def main():
             if not len(idx):
                 continue
             seq, hs, fl = make_rollouts(Xl[idx], al[idx], hl[idx], H, L, int(10 / DT))
-            pred = predict(model, norm, seq, H, True)
+            pred = predict(model, norm, seq, H, True, Pl[idx][fl])
             out[gname] = (seq, hs, fl, idx, pred)
         seq, hs, fl, idx, pred = out["entrainement"]
         true = seq[:, H:, :N_STATE]
@@ -103,7 +99,7 @@ def main():
         for i, k in enumerate(STATE):
             r = [np.sqrt(np.mean((pred[:, int(t / DT) - 1, i] - true[:, int(t / DT) - 1, i]) ** 2)) / std[i] for t in hor]
             print(f"      {k:8s} " + "".join(f"{v:9.3f}" for v in r))
-        pr = probe_present_state(model, norm, Xtr, atr, tr, va, H)
+        pr = probe_present_state(model, norm, Xtr, atr, Ptr, tr, va, H)
         print(f"      sonde (état présent lu dans z(t), erreur normalisée, 0 = parfait, 1 = rien) : {pr}")
 
         # ---------- Q2 : altitude à long terme

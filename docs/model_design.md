@@ -241,3 +241,53 @@ Code : `wingjepa/data/windows.py`, `wingjepa/models/jepa.py`, `scripts/train_a.p
 - **Évaluation** : boucle ouverte depuis 0,5 s de passé réel, 25 s (vols de test) ou 60 s (vols longs) ;
   RMS à 1, 5, 20, 60 s ; horizon utile (5 m, 1 m/s, 10 deg) ; référence « rien ne change ».
   À rediscuter : le seuil de 1 m/s est du même ordre que les fluctuations de vitesse dues à la turbulence.
+
+---
+
+## 11. Version 2 et modèle C tels qu'implémentés (21 oct. 2026)
+
+Code : `wingjepa/models/physics.py` (tête physique), `scripts/fit_prior.py` (a priori), `scripts/train_a.py`
+(modes `c_direct`, `c_jepa`), `scripts/evaluate.py` (référence altitude constante, attribution).
+
+**Entrées v2, pour tous les modèles** (diagnostic, journal § 9 : le modèle ne savait pas sur quel avion il
+volait) :
+- **2 s de passé** (H = 40 pas) au lieu de 0,5 s. Le TCN ne voit que son champ réceptif,
+  1 + 2 x (somme des dilatations) : 15 pas avec 1, 2, 4. On ajoute deux couches (dilatations 8 et 16,
+  canaux 32) : 63 pas, qui couvrent les 40. Le résumé reste un vecteur z de 32.
+- **Masse et inerties** (Ixx, Iyy, Izz, Ixz), connues (pesée, essai pendulaire), en écart relatif à
+  l'avion nominal, ajoutées au résumé du passé avant la dernière couche de l'encodeur. L'aéro et le moteur
+  restent inconnus (à deviner dans l'historique).
+- A0-v2 et A-v2 sont réentraînés avec ces entrées : les comparaisons avec C se font à entrées égales.
+
+**Tête physique** (remplace le décodeur MLP ; encodeur et prédicteur inchangés) :
+- Elle porte un état physique x_k = (u, v, w, p, q, r, phi, theta), initialisé au dernier état observé.
+  (u, v, w) : vitesse par rapport à la masse d'air moyenne, en axes avion.
+- À chaque pas : forces et moments = **a priori** (coefficients aéro en axes de stabilité tournés en axes
+  avion, poussée) + **correction** de 6 coefficients (CX, CY, CZ, Cl, Cm, Cn) x pression dynamique, calculée
+  par un MLP 32+16 -> 64 -> 64 -> 6 à partir du latent z_k, de l'état et des entrées. Puis **Newton 3D**
+  avec la vraie masse et les vraies inerties (mêmes équations et conventions que le simulateur), RK4 sur
+  0,05 s. Sorties : les 9 grandeurs (vitesse verticale = air + vent vertical estimé).
+- Dernière couche de la correction à zéro : au départ, la tête est exactement l'a priori.
+- Perte = erreur d'état normalisée (comme A0) + 1e-3 x moyenne des sorties brutes de la correction au
+  carré (garder la correction petite, idée d'APHYNITY ; 0 pour l'a priori nul, qui n'a rien à préserver).
+- Simplifications : gouvernes = commandes (actionneurs de 0,02 s, plus rapides que le pas) ; masse
+  volumique fixe ; rafales et turbulence inconnues de la tête (le latent peut les corriger).
+
+**A priori** (régresseurs : `TERMS` dans `physics.py`) :
+
+| Niveau | Contenu |
+|---|---|
+| ajusté | moindres carrés sur les coefficients et la poussée enregistrés, vols d'entraînement ; plus simple que les tables NASA (ni souffle de l'hélice, ni décrochage) : R2 affiché par `fit_prior.py` |
+| générique | coefficients publiés de l'Ultra Stick 25e (traînée linéarisée) ; poussée = ajustée |
+| faux | ajusté, chaque coefficient x (1 +/- 30 %), signe tiré au hasard (graine 0) |
+| nul (C0) | tout à zéro : seules gravité et équations du mouvement ; même tête, même nombre de paramètres |
+
+**Deux façons de l'entraîner** :
+- **C-direct** (à comparer à A0-v2) : tout le réseau d'un bloc sur la perte ci-dessus, curriculum 1 -> 5 s.
+- **C-JEPA** (à comparer à A-v2, comme la sonde physique de SkyJEPA) : tronc d'A-v2 figé, tête physique
+  seule, curriculum 1 -> 5 s.
+
+**Évaluation ajoutée** : référence « altitude constante » ; pour C, **attribution** : au premier pas, la
+correction apprise est comparée à ce qui manque vraiment à l'a priori (forces et moments vrais du
+simulateur - a priori au même état), R2 par composante. Elle dit si la correction apprend la physique
+manquante ou autre chose.

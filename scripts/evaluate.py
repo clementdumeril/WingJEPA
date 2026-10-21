@@ -137,7 +137,7 @@ def main():
         print(f"\n== {gname} : {len(seq)} séquences de {L * DT:.0f} s")
         print("   turbulence  n     horizon utile médian [s]        RMS altitude [m]              RMS vitesse 5 s [m/s]")
         print("                     estimé / vrai vent / réf.       estimé / vrai vent / réf.     estimé / vrai vent / réf.")
-        tmax = f"{min(60, int(L * DT)):g}s"
+        tmax = "60s" if L * DT >= 60 else "20s"
         for tl in ["toutes"] + TURB:
             m = np.ones(len(seq), bool) if tl == "toutes" else (turb == tl)
             if m.sum() == 0:

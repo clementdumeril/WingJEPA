@@ -3,6 +3,9 @@
   --mode jepa : étape 1 = encodeur + prédicteur, perte JEPA + lambda * SIGReg (latents prédits) ;
                 étape 2 = décodeur seul (encodeur et prédicteur figés), erreur sur l'état.
   --mode a0   : même réseau entraîné d'un bloc sur l'erreur d'état (prédiction directe, pas de JEPA).
+  --mode joint: JEPA + SIGReg + erreur d'état ensemble, décodeur appris en même temps (pas figé).
+Horizon d'entraînement : de --T pas au départ jusqu'à --T-max pas (curriculum linéaire atteint à
+--curriculum-frac de l'entraînement) ; la validation utilise toujours --T-max.
 On garde les poids les meilleurs sur les vols de validation.
 
 Usage : python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a --mode jepa
@@ -37,7 +40,7 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
     for step in range(steps):
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, a.lr, a.warmup, a.lr_floor)
-        loss, parts = loss_fn()
+        loss, parts = loss_fn(step)
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(params, a.clip)
@@ -60,9 +63,12 @@ def main():
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", default="train")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--mode", choices=["jepa", "a0"], default="jepa")
+    ap.add_argument("--mode", choices=["jepa", "a0", "joint"], default="jepa")
     ap.add_argument("--H", type=int, default=10)
-    ap.add_argument("--T", type=int, default=20)
+    ap.add_argument("--T", type=int, default=20, help="horizon d'entraînement au départ (pas de 0,05 s)")
+    ap.add_argument("--T-max", type=int, default=None, help="horizon final (défaut : --T, pas de curriculum)")
+    ap.add_argument("--curriculum-frac", type=float, default=0.5)
+    ap.add_argument("--lambda-state", type=float, default=1.0, help="poids de l'erreur d'état (mode joint)")
     ap.add_argument("--z-dim", type=int, default=32)
     ap.add_argument("--steps1", type=int, default=20000)
     ap.add_argument("--steps2", type=int, default=20000)
@@ -92,30 +98,41 @@ def main():
     tr, va = split_mask(meta, "train", a.seed), split_mask(meta, "val", a.seed)
     norm = Normalizer.fit(X[tr], alive[tr])
     Xn = norm(X)
-    S_tr = WindowSampler(Xn[tr], alive[tr], a.H, a.T, seed=a.seed)
-    S_va = WindowSampler(Xn[va], alive[va], a.H, a.T, seed=a.seed + 1)
+    T_max = a.T_max or a.T
+    S_tr = WindowSampler(Xn[tr], alive[tr], a.H, T_max, seed=a.seed)
+    S_va = WindowSampler(Xn[va], alive[va], a.H, T_max, seed=a.seed + 1)
     val_seq = torch.from_numpy(S_va.fixed(a.val_windows))
     print(f"vols : {tr.sum()} entraînement, {va.sum()} validation ; fenêtres : {len(S_tr)} / {len(S_va)}", flush=True)
 
     model = WorldModel(z_dim=a.z_dim)
     print(f"paramètres : {model.n_params()} (total {sum(model.n_params().values())})", flush=True)
     H = a.H
-    nxt = lambda: torch.from_numpy(S_tr.batch(a.batch))
+
+    def T_at(step, steps):
+        """Curriculum : de a.T à T_max pas, linéairement, atteint à curriculum_frac de l'étape."""
+        x = min(1.0, step / max(1, a.curriculum_frac * steps))
+        return int(round(a.T + (T_max - a.T) * x))
+
+    def nxt(T):
+        return torch.from_numpy(S_tr.batch(a.batch))[:, :H + T]
+
     state_loss = lambda zf, seq: ((model.decoder(zf) - seq[:, H:, :N_STATE]) ** 2).mean()
     log = []
     ckpt = lambda: torch.save(model.state_dict(), out / "model.pt")
 
-    if a.mode == "jepa":
-        def jepa_loss(seq):
-            zp, zt = model.predict_latents(seq, H), model.target_latents(seq, H)
-            pred = ((zp - zt) ** 2).mean()
-            # SIGReg sur les latents prédits, moyenné dans le temps : estimé sur quelques pas tirés au hasard
-            ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
-            reg = torch.stack([sigreg(zp[:, k], n_proj=a.sigreg_proj) for k in ks]).mean()
-            return pred + a.lambda_sig * reg, dict(pred=pred.item(), sigreg=reg.item())
+    def jepa_loss(seq):
+        zp, zt = model.predict_latents(seq, H), model.target_latents(seq, H)
+        pred = ((zp - zt) ** 2).mean()
+        # SIGReg sur les latents prédits, moyenné dans le temps : estimé sur quelques pas tirés au hasard
+        ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
+        reg = torch.stack([sigreg(zp[:, k], n_proj=a.sigreg_proj) for k in ks]).mean()
+        return pred + a.lambda_sig * reg, zp, dict(pred=pred.item(), sigreg=reg.item())
 
-        def loss1():
-            return jepa_loss(nxt())
+    if a.mode == "jepa":
+        def loss1(step):
+            T = T_at(step, a.steps1)
+            loss, zp, parts = jepa_loss(nxt(T))
+            return loss, dict(parts, T=T)
 
         def val1():
             # erreur de prédiction normalisée par la dispersion des latents cibles : indépendante de la
@@ -129,8 +146,8 @@ def main():
         for p in list(model.encoder.parameters()) + list(model.predictor.parameters()):
             p.requires_grad_(False)                                   # étape 2 : tronc figé
 
-        def loss2():
-            seq = nxt()
+        def loss2(step):
+            seq = nxt(T_max)
             with torch.no_grad():
                 zf = model.predict_latents(seq, H)
             return state_loss(zf, seq), {}
@@ -140,14 +157,30 @@ def main():
 
         best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val2, a.steps2, a, log, ckpt)
         summary = dict(best_val_jepa=best1, best_val_state=best2)
+    elif a.mode == "joint":
+        steps = a.steps1 + a.steps2
+
+        def loss_joint(step):
+            T = T_at(step, steps)
+            seq = nxt(T)
+            lj, zp, parts = jepa_loss(seq)
+            ls = state_loss(zp, seq)
+            return lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T)
+
+        best = run_stage("joint", list(model.parameters()), loss_joint,
+                         lambda: state_loss(model.predict_latents(val_seq, H), val_seq), steps, a, log, ckpt)
+        summary = dict(best_val_state=best)
     else:
-        def loss_a0():
-            seq = nxt()
-            return state_loss(model.predict_latents(seq, H), seq), {}
+        steps = a.steps1 + a.steps2
+
+        def loss_a0(step):
+            T = T_at(step, steps)
+            seq = nxt(T)
+            return state_loss(model.predict_latents(seq, H), seq), dict(T=T)
 
         best = run_stage("a0", list(model.parameters()), loss_a0,
                          lambda: state_loss(model.predict_latents(val_seq, H), val_seq),
-                         a.steps1 + a.steps2, a, log, ckpt)
+                         steps, a, log, ckpt)
         summary = dict(best_val_state=best)
 
     cfg = dict(vars(a), features=FEATURES, n_params=model.n_params(), norm=norm.to_dict(), **summary)

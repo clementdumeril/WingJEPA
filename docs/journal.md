@@ -165,3 +165,22 @@ Décisions (détail : `model_design.md` § 11) :
 Plan (une graine, puis 3) : smoke test (`cluster/smoke_c.sbatch`, construit aussi les a priori), puis
 A0-v2, A-v2, C-direct x 4 a priori, et C-JEPA x 4 a priori une fois A-v2 fini. Le code n'a pas été exécuté
 sur le PC : tout est vérifié sur Savio.
+
+**Premiers résultats v2 (21 oct. 2026, une graine).** A0-v2 (2 s de passé + masse et inerties) contre A0-v1 :
+
+| | A0-v1 | A0-v2 | réf. v2 | altitude constante |
+|---|---|---|---|---|
+| Horizon utile, vols de test | 3,70 s | 3,60 s | 1,50 s | 1,45 s |
+| Horizon utile, vols longs, avions d'entraînement | 3,55 s | 3,70 s | 1,60 s | 1,43 s |
+| Horizon utile, avions de test extrêmes | 1,80 s | **2,00 s** | 1,55 s | 1,45 s |
+| Altitude à 60 s, avions d'entraînement | 150 m | **73 m** | 183 m | **36 m** |
+| Altitude à 60 s, avions de test extrêmes | 300 m | 197 m | 185 m | **38 m** |
+
+- Court terme inchangé ; un peu mieux sur les avions extrêmes (+0,2 s, dans le bruit d'une graine) ; dérive
+  d'altitude à 60 s divisée par deux. L'écart avions d'entraînement -> extrêmes reste grand (3,7 -> 2,0 s) et
+  l'altitude constante reste imbattue à 60 s.
+- Attention : avec H = 40, les prédictions démarrent 1,5 s plus tard dans chaque fenêtre ; la référence
+  bouge un peu (1,70 -> 1,50 s sur les vols de test). Comparer chaque modèle à sa propre référence.
+- Modèle C, en cours : C-direct avec a priori ajusté, faux et nul tous à ~0,10 en validation à mi-parcours
+  (la correction semble pouvoir remplacer l'a priori) ; l'a priori générique a d'abord divergé (NaN :
+  assiette > 90 deg dans une étape intermédiaire du RK4), corrigé et relancé.

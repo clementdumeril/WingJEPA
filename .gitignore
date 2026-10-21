@@ -15,3 +15,6 @@ slurm-*.out
 
 # données tierces (tables NASA du simulateur UMN), récupérées par scripts/fetch_umn.sh
 third_party/
+
+# récaps personnels : gardés sur le PC, jamais sur GitHub
+docs/recap_*.md

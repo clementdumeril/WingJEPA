@@ -134,14 +134,14 @@ def main():
         ax[4].legend(ncol=4); ax[4].set_xlabel("t [s]")
         fig.suptitle(f"flight {i} - {TYPE_NAMES[M['type'][i]]} / {LAT_NAMES[M['lat_mode'][i]]} - "
                      f"turbulence {M['turb_level'][i]}")
-        fig.tight_layout(); fig.savefig(out / f"flight_{i:04d}.png", dpi=90); plt.close(fig)
+        fig.tight_layout(); fig.savefig(out / f"flight_{i:04d}.png", dpi=150); plt.close(fig)
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
     for i in picks[:8]:
         ax[0].plot(c["east"][i][alive[i]], c["north"][i][alive[i]], lw=0.8)
     ax[0].set_aspect("equal"); ax[0].set_xlabel("east [m]"); ax[0].set_ylabel("north [m]")
     ax[0].set_title("trajectories, top view")
     ax[1].hist(c["phi"][v] * DEG, 80); ax[1].set_title("bank angle phi [deg]")
-    fig.tight_layout(); fig.savefig(out / "overview.png", dpi=90); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out / "overview.png", dpi=150); plt.close(fig)
     print(f"figures: {out}")
 
 

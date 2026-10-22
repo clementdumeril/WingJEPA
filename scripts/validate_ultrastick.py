@@ -89,7 +89,7 @@ def validate_25e(umn, out):
         a.set_ylabel(lab); a.grid(True)
     ax[0].legend(); ax[-1].set_xlabel("t [s]")
     fig.suptitle("Ultra Stick 25e: 1 deg doublets (elevator 4-6 s, rudder 14-16 s, ailerons 24-26 s)")
-    fig.tight_layout(); fig.savefig(out / "ultrastick25e_vs_umn_6dof.png", dpi=90); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out / "ultrastick25e_vs_umn_6dof.png", dpi=150); plt.close(fig)
     _, o, r = run_25e(umn, "doublet_longmodel.mat", ["e", 0, 0])
     report("elevator doublet only (30 s)", o, r, ["u", "w", "q", "theta", "h"])
 
@@ -154,7 +154,7 @@ def validate_faser(out):
         ax[2, j].plot(r[:, 0], r[:, 1]); ax[2, j].set_ylabel("Va [m/s]"); ax[2, j].set_xlabel("t [s]")
     ax[0, 0].set_ylabel("deg/s"); ax[1, 0].set_ylabel("deg")
     fig.suptitle("Ultra Stick 120 (NASA tables, 6DoF), from the 20 m/s trim")
-    fig.tight_layout(); fig.savefig(out / "ultrastick120_6dof_doublets.png", dpi=90); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out / "ultrastick120_6dof_doublets.png", dpi=150); plt.close(fig)
 
 
 def main():

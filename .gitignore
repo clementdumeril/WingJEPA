@@ -21,9 +21,7 @@ third_party/
 # working notes (kept locally)
 docs/*.md
 
-# editor and assistant settings
-.claude/
-CLAUDE.md
+# editor settings and secrets
 AGENTS.md
 .cursor/
 .env

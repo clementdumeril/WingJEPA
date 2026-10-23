@@ -21,6 +21,9 @@ import numpy as np  # noqa: E402
 LABELS = {
     "a0_v2T100": "A0: direct state loss",
     "jepa_v2T100": "A: JEPA",
+    "jepa_v2T100_ema": "A: JEPA, slow target encoder",
+    "jepa_ft_v2T100": "A: JEPA pre-training + fine-tuning",
+    "jepa_ft_v2T100_ema": "A: JEPA pre-training (slow target) + fine-tuning",
     "c_direct_v2T100_ajuste": "C-direct, fitted prior",
     "c_direct_v2T100_generique": "C-direct, generic prior",
     "c_direct_v2T100_faux": "C-direct, wrong prior",

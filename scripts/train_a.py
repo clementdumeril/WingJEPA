@@ -3,6 +3,8 @@
   --mode jepa    : stage 1 = encoder + predictor, JEPA loss + lambda * SIGReg (predicted latents);
                    stage 2 = decoder alone (encoder and predictor frozen), state error.
   --mode a0      : same network trained in one block on the state error (direct prediction, no JEPA).
+  --mode jepa_ft : JEPA as pre-training: stage 1 as in jepa, then stage 2 fine-tunes the whole network
+                   (encoder, predictor, decoder) on the state error, at peak learning rate --ft-lr.
   --mode joint   : JEPA + SIGReg + state error together, decoder learned at the same time (not frozen).
   --mode c_direct: like a0, with the physics head (--prior) instead of the MLP decoder; loss = state
                    error + --lambda-res * size of the learned correction (APHYNITY idea).
@@ -11,6 +13,8 @@
 Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
 --curriculum-frac of the training); validation always uses --T-max.
 The best weights on the validation flights are kept.
+--ema TAU (> 0): the JEPA targets come from a slow copy of the encoder, updated after every step as
+target = TAU * target + (1 - TAU) * encoder, with no gradient through the targets (I-JEPA / V-JEPA).
 
 v2 inputs by default (2 s of past, 5-layer encoder, mass and inertias as input). To redo a v1 run:
 --H 10 --channels 16,16,32 --dilations 1,2,4 --aircraft-input 0.
@@ -20,6 +24,7 @@ Usage: python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a
        python scripts/train_a.py ... --mode c_jepa --prior <...>/ajuste.json --trunk runs/jepa_v2T100_s0
 """
 import argparse
+import copy
 import json
 import math
 import os
@@ -43,12 +48,13 @@ def lr_at(step, total, peak, warmup, floor):
     return floor + 0.5 * (peak - floor) * (1 + math.cos(math.pi * min(x, 1.0)))
 
 
-def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
-    opt = torch.optim.Adam(params, lr=a.lr, weight_decay=a.weight_decay)
+def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, peak=None, after_step=None):
+    peak = peak or a.lr
+    opt = torch.optim.Adam(params, lr=peak, weight_decay=a.weight_decay)
     best, t0, skipped = float("inf"), time.time(), 0
     for step in range(steps):
         for g in opt.param_groups:
-            g["lr"] = lr_at(step, steps, a.lr, a.warmup, a.lr_floor)
+            g["lr"] = lr_at(step, steps, peak, a.warmup, a.lr_floor)
         loss, parts = loss_fn(step)
         opt.zero_grad()
         loss.backward()
@@ -56,6 +62,8 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best):
         # a batch with a non-finite loss or gradient is skipped: a single NaN would be enough to destroy the weights
         if torch.isfinite(loss) and torch.isfinite(gnorm):
             opt.step()
+            if after_step:
+                after_step()
         else:
             skipped += 1
         if step % a.eval_every == 0 or step == steps - 1:
@@ -76,7 +84,7 @@ def main():
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", default="train")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--mode", choices=["jepa", "a0", "joint", "c_direct", "c_jepa"], default="jepa")
+    ap.add_argument("--mode", choices=["jepa", "jepa_ft", "a0", "joint", "c_direct", "c_jepa"], default="jepa")
     ap.add_argument("--H", type=int, default=40, help="past steps (0.05 s)")
     ap.add_argument("--channels", default="16,16,32,32,32", help="channels of the encoder layers")
     ap.add_argument("--dilations", default="1,2,4,8,16", help="receptive field = 1 + 2 * sum")
@@ -100,6 +108,8 @@ def main():
     ap.add_argument("--weight-decay", type=float, default=1e-5)
     ap.add_argument("--clip", type=float, default=0.5)
     ap.add_argument("--lambda-sig", type=float, default=0.02)
+    ap.add_argument("--ema", type=float, default=0.0, help="slow target encoder (e.g. 0.996); 0 = off")
+    ap.add_argument("--ft-lr", type=float, default=1e-3, help="peak learning rate of the fine-tuning (jepa_ft)")
     ap.add_argument("--sigreg-proj", type=int, default=128)
     ap.add_argument("--sigreg-steps", type=int, default=4)
     ap.add_argument("--eval-every", type=int, default=500)
@@ -173,9 +183,22 @@ def main():
     log = []
     ckpt = lambda: torch.save(model.state_dict(), out / "model.pt")
 
+    target_enc = None
+    if a.ema > 0:
+        target_enc = copy.deepcopy(model.encoder)
+        for p_ in target_enc.parameters():
+            p_.requires_grad_(False)
+
+    @torch.no_grad()
+    def ema_update():
+        for pt, p_ in zip(target_enc.parameters(), model.encoder.parameters()):
+            pt.mul_(a.ema).add_(p_.detach(), alpha=1 - a.ema)
+
+    after = ema_update if target_enc is not None else None
+
     def jepa_loss(seq, ac):
         z0, zp, U = model.latents(seq, H, True, ac)
-        zt = model.target_latents(seq, H, ac)
+        zt = model.target_latents(seq, H, ac, encoder=target_enc)
         pred = ((zp - zt) ** 2).mean()
         # SIGReg on the predicted latents, averaged over time: estimated on a few randomly drawn steps
         ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
@@ -183,7 +206,7 @@ def main():
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
 
     trunk_params = list(model.encoder.parameters()) + list(model.predictor.parameters())
-    if a.mode == "jepa":
+    if a.mode in ("jepa", "jepa_ft"):
         def loss1(step):
             T = T_at(step, a.steps1)
             loss, _, parts = jepa_loss(*nxt(T))
@@ -192,18 +215,26 @@ def main():
         def val1():
             # prediction error normalized by the spread of the target latents: independent of the
             # batch size, and penalizes collapse (if all the z look alike, it blows up)
-            zp, zt = model.predict_latents(val_seq, H, True, val_ac), model.target_latents(val_seq, H, val_ac)
+            zp = model.predict_latents(val_seq, H, True, val_ac)
+            zt = model.target_latents(val_seq, H, val_ac, encoder=target_enc)
             return ((zp - zt) ** 2).mean() / zt.reshape(-1, zt.shape[-1]).var(0).mean()
 
-        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt)
+        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt, after_step=after)
         model.load_state_dict(torch.load(out / "model.pt"))
-        for p_ in trunk_params:
-            p_.requires_grad_(False)                                  # stage 2: trunk frozen
+        if a.mode == "jepa":
+            for p_ in trunk_params:
+                p_.requires_grad_(False)                              # stage 2: trunk frozen
 
-        def loss2(step):
-            return state_loss(*nxt(T_max), frozen=True)[0], {}
+            def loss2(step):
+                return state_loss(*nxt(T_max), frozen=True)[0], {}
 
-        best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt)
+            best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt)
+        else:                                                         # stage 2: fine-tune everything
+            def loss2(step):
+                return state_loss(*nxt(T_max))[0], {}
+
+            best2 = run_stage("finetune", list(model.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
+                              peak=a.ft_lr)
         summary = dict(best_val_jepa=best1, best_val_state=best2)
     elif a.mode == "joint":
         steps = a.steps1 + a.steps2
@@ -215,7 +246,8 @@ def main():
             ls = state_err(model.head_states(z0, zp, U, seq, H, ac)[0], seq)
             return lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T)
 
-        best = run_stage("joint", list(model.parameters()), loss_joint, val_state, steps, a, log, ckpt)
+        best = run_stage("joint", list(model.parameters()), loss_joint, val_state, steps, a, log, ckpt,
+                         after_step=after)
         summary = dict(best_val_state=best)
     elif a.mode == "c_jepa":
         for p_ in trunk_params:

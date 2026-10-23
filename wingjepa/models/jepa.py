@@ -150,13 +150,14 @@ class WorldModel(nn.Module):
         z0, zs, U = self.latents(seq, H, hold_wind, ac)
         return self.head_states(z0, zs, U, seq, H, ac)
 
-    def target_latents(self, seq, H, ac=None):
-        """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D)."""
+    def target_latents(self, seq, H, ac=None, encoder=None):
+        """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D).
+        encoder: another encoder for the targets (slow EMA copy), default the model's own."""
         win = seq[:, :, :N_STATE].unfold(1, H, 1)[:, 1:]             # (B, T, 9, H)
         B, T = win.shape[:2]
         c = self.ctx(ac)
         c = None if c is None else c.repeat_interleave(T, 0)
-        z = self.encoder(win.reshape(B * T, win.shape[2], H).transpose(1, 2), c)
+        z = (encoder or self.encoder)(win.reshape(B * T, win.shape[2], H).transpose(1, 2), c)
         return z.reshape(B, T, -1)
 
     def n_params(self):

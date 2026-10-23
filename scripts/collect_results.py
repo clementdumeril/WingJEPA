@@ -20,6 +20,11 @@ WHO = {"model": "modele_vent_estime", "ref_constant_state": "reference",
        "ref_constant_altitude": "reference_altitude_constante"}
 
 
+def relative(path):
+    """/.../WingJEPA/data/data_v1 -> data/data_v1"""
+    return path.split("/WingJEPA/", 1)[-1]
+
+
 def summarize(run):
     cfg = json.load(open(run / "config.json"))
     prior = (cfg.get("prior") or {}).get("name", "")
@@ -52,9 +57,12 @@ def main():
             continue
         dst = out / run.name
         dst.mkdir(parents=True, exist_ok=True)
-        for f in ("config.json", "log.json", "eval_train.json", "eval_test_long.json"):
+        for f in ("log.json", "eval_train.json", "eval_test_long.json"):
             if (run / f).exists():
                 shutil.copy(run / f, dst / f)
+        cfg = json.load(open(run / "config.json"))
+        cfg["data_dir"] = relative(cfg["data_dir"])                    # no cluster paths in the repository
+        json.dump(cfg, open(dst / "config.json", "w"), indent=1)
         rows.append(summarize(run))
         print(f"collected {run.name}")
     if not rows:

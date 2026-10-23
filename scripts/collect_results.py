@@ -40,6 +40,14 @@ def summarize(run):
                 continue
             row[f"{w}_horizon_s_{g}"] = round(res[wk]["horizon_utile_s"]["mediane"], 2)
             row[f"{w}_alt_rms_{tmax}_m_{g}"] = round(res[wk]["h"].get(tmax, float("nan")), 1)
+    pos = run / "eval_position_test_long.json"
+    if pos.exists():
+        ep = json.load(open(pos))
+        for g, (_, key) in GROUPS.items():
+            for t in ("5s", "10s"):
+                if key in ep and t in ep[key]["model"]:
+                    row[f"model_pos_rms_{t}_m_{g}"] = round(ep[key]["model"][t]["rms"], 1)
+                    row[f"ref_constant_state_pos_rms_{t}_m_{g}"] = round(ep[key]["reference"][t]["rms"], 1)
     return row
 
 
@@ -57,7 +65,7 @@ def main():
             continue
         dst = out / run.name
         dst.mkdir(parents=True, exist_ok=True)
-        for f in ("log.json", "eval_train.json", "eval_test_long.json"):
+        for f in ("log.json", "eval_train.json", "eval_test_long.json", "eval_position_test_long.json"):
             if (run / f).exists():
                 shutil.copy(run / f, dst / f)
         cfg = json.load(open(run / "config.json"))

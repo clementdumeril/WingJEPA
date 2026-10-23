@@ -4,7 +4,7 @@ Each model gets the same 2 s of measured history, then predicts alone for --hori
 only the commands actually applied and the last wind estimate (as in scripts/evaluate.py). The start
 point is drawn at random (--seed) among the valid starts of the chosen group, not hand-picked.
 
-Writes <out>.gif (about 800 px wide, 12 fps) and <out>.png (last frame).
+Writes <out>.gif (about 720 px wide, 10 fps, under 5 MB) and <out>.png (last frame).
 
 Usage: python scripts/make_rollout_gif.py --data-dir <data_dir> \
            --models runs/a0_v2T100_s0 runs/c_direct_v2T100_ajuste_s0 --labels "A0" "C-direct, fitted prior"
@@ -49,8 +49,8 @@ def main():
     ap.add_argument("--stride-s", type=float, default=10.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--index", type=int, default=None, help="start index instead of a random draw")
-    ap.add_argument("--steps-per-frame", type=int, default=2)
-    ap.add_argument("--fps", type=int, default=12)
+    ap.add_argument("--steps-per-frame", type=int, default=4)
+    ap.add_argument("--fps", type=int, default=10)
     ap.add_argument("--out", default="assets/rollout_extreme_aircraft")
     a = ap.parse_args()
     assert len(a.models) == len(a.labels), "one label per model"
@@ -118,10 +118,10 @@ def main():
         clock.set_text(f"t = {k_ * DT:4.1f} s")
         return []
 
-    frames = list(range(n_frames)) + [n_frames - 1] * (2 * a.fps)          # hold the end for 2 s
+    frames = list(range(n_frames)) + [n_frames - 1] * int(1.5 * a.fps)     # hold the end for 1.5 s
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    FuncAnimation(fig, draw, frames=frames).save(out.with_suffix(".gif"), writer=PillowWriter(fps=a.fps), dpi=100)
+    FuncAnimation(fig, draw, frames=frames).save(out.with_suffix(".gif"), writer=PillowWriter(fps=a.fps), dpi=90)
     draw(n_frames - 1)
     fig.savefig(out.with_suffix(".png"), dpi=150)
     print(f"written {out.with_suffix('.gif')} ({out.with_suffix('.gif').stat().st_size / 1e6:.1f} MB) and .png")

@@ -30,7 +30,7 @@ LABELS = {
     "c_jepa_v2T100_faux": "C-JEPA, wrong prior",
     "c_jepa_v2T100_nul": "C0-JEPA, no prior",
 }
-GROUPS = {"avions_entrainement": "Training aircraft", "avions_de_test": "Extreme test aircraft"}
+GROUPS = {"avions_entrainement": "Training-range aircraft", "avions_de_test": "Extreme test aircraft"}
 TIMES = ["1s", "5s", "20s", "60s"]
 
 

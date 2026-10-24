@@ -1,10 +1,12 @@
 #!/bin/bash
-# Builds everything the README shows, from finished runs:
-#   results/<run>/ and results/summary.csv   (scripts/collect_results.py)
-#   assets/useful_horizon.png, assets/altitude_error.png   (scripts/make_figures.py)
-#   assets/rollout_extreme_aircraft.gif / .png   (scripts/make_rollout_gif.py)
-#   assets/validation/*.png: simulator vs UMN reference (scripts/validate_ultrastick.py; needs the full
-#   UMN archive, downloaded here if the node has internet access, skipped otherwise)
+# Builds everything the README shows, from finished runs, into export/ (ignored by git, so that pulls on
+# the cluster never clash with the committed copies), then packs it as export.tgz:
+#   export/results/<run>/ and summary.csv   (scripts/collect_results.py)
+#   export/assets/useful_horizon.png, altitude_error.png   (scripts/make_figures.py)
+#   export/assets/rollout_extreme_aircraft.gif / .png   (scripts/make_rollout_gif.py)
+#   export/assets/validation/*.png: simulator vs UMN reference (scripts/validate_ultrastick.py; needs the
+#   full UMN archive, downloaded here if the node has internet access, skipped otherwise)
+# Unpack export.tgz at the repository root of the local clone to update results/ and assets/.
 # The unit tests (tests/) run first.
 # Usage: sbatch cluster/make_assets.sbatch
 #SBATCH --job-name=wingjepa-assets
@@ -22,9 +24,10 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 DATA=/global/scratch/users/$USER/WingJEPA/data/data_v1
 
 python -m pytest -q tests
-python scripts/collect_results.py
-python scripts/make_figures.py
-python scripts/make_rollout_gif.py --data-dir "$DATA" \
+E=export
+python scripts/collect_results.py --out $E/results
+python scripts/make_figures.py --results $E/results --out $E/assets
+python scripts/make_rollout_gif.py --data-dir "$DATA" --out $E/assets/rollout_extreme_aircraft \
   --models runs/a0_v2T100_s0 runs/jepa_v2T100_s0 runs/c_direct_v2T100_ajuste_s0 \
   --labels "A0 (direct)" "A (JEPA)" "C (physics head, fitted prior)"
 
@@ -38,7 +41,8 @@ if [ ! -d "$UMN/UMNUAV_sim_v4" ]; then
   fi
 fi
 if [ -d "$UMN/UMNUAV_sim_v4" ]; then
-  python scripts/validate_ultrastick.py --umn-dir "$UMN/UMNUAV_sim_v4" --out assets/validation
+  python scripts/validate_ultrastick.py --umn-dir "$UMN/UMNUAV_sim_v4" --out $E/assets/validation
 fi
-ls -la assets assets/validation 2>/dev/null || true
+tar czf export.tgz -C $E results assets
+ls -la $E/assets export.tgz
 echo "ASSETS OK"

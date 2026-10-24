@@ -26,3 +26,5 @@ AGENTS.md
 .cursor/
 .env
 *.tgz
+/export/
+export.tgz

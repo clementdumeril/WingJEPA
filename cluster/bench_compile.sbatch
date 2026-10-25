@@ -54,7 +54,7 @@ for cfg in "0 2" "1 1" "1 2" "1 4" "1 8"; do
   set -- $cfg
   export OMP_NUM_THREADS=$2
   python scripts/train_a.py --data-dir "$DATA" --out runs/bench/compile$1_t$2 --mode c_direct --prior "$PRIOR" \
-      --threads $2 --compile $1 $STEPS 2>/dev/null \
+      --threads $2 --compile $1 $STEPS \
     | python -c "import sys, json
 recs = [json.loads(l) for l in sys.stdin if l.startswith('{\"stage\"')]
 rate = (recs[-1]['sec'] - recs[0]['sec']) / (recs[-1]['step'] - recs[0]['step'])

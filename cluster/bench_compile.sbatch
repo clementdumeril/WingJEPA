@@ -14,6 +14,7 @@
 
 set -euo pipefail
 mkdir -p runs/slurm
+source cluster/compiler.sh
 source /global/scratch/users/$USER/venvs/wingjepa/bin/activate
 DATA=/global/scratch/users/$USER/WingJEPA/data/data_v1
 PRIOR=$DATA/priors/ajuste.json

@@ -67,6 +67,7 @@ class PhysicsHead(nn.Module):
         self.register_buffer("lo", torch.tensor([0.5, -40, -40, -8, -8, -8, -math.pi, -1.4]))
         self.register_buffer("hi", torch.tensor([80.0, 40, 40, 8, 8, 8, math.pi, 1.4]))
         self.out_scale, self.n_sub, self.dt = out_scale, n_sub, dt
+        self._step = self.step                                   # replaced by a compiled version (compile_step())
         self.net = nn.Sequential(nn.Linear(z_dim + N_STATE + N_CTRL + N_WIND, hidden), nn.GELU(),
                                  nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, 6))
         nn.init.zeros_(self.net[-1].weight)
@@ -151,6 +152,14 @@ class PhysicsHead(nn.Module):
         raw = self.net(torch.cat([z, s_n, u_n], -1))
         return raw * self.out_scale, raw
 
+    def compile_step(self):
+        """Compile one integration step (RK4 stages, prior, Newton-Euler) into fused kernels with
+        torch.compile. The step is otherwise a few hundred tiny tensor operations, whose fixed cost
+        dominates the training time. Only the step is compiled, not the loop over the horizon, so the
+        curriculum (horizon growing during training) does not trigger recompilations."""
+        self._step = torch.compile(self.step, dynamic=False)
+        return self
+
     def forward(self, zs, s0, U, ac):
         """zs (B, T, D): latents z_0..z_{T-1} (start of each step); s0 (B, 9): last observed state,
         normalized; U (B, T, 7): normalized future inputs; ac (B, 5).
@@ -162,7 +171,7 @@ class PhysicsHead(nn.Module):
         s_n, out, raws = s0, [], []
         for k in range(U.shape[1]):
             dC, raw = self.correction(zs[:, k], s_n, U[:, k])
-            x = self.step(x, Uph[:, k, :N_CTRL], dC, ac)
+            x = self._step(x, Uph[:, k, :N_CTRL], dC, ac)
             s_n = (self.to_features(x, Uph[:, k, N_CTRL + 2]) - mean_s) / std_s
             out.append(s_n)
             raws.append(raw)

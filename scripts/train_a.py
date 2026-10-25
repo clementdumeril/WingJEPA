@@ -98,6 +98,7 @@ def main():
     ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
+    ap.add_argument("--compile", type=int, default=0, help="1: compile the physics-head step (torch.compile)")
     ap.add_argument("--z-dim", type=int, default=32)
     ap.add_argument("--steps1", type=int, default=20000)
     ap.add_argument("--steps2", type=int, default=20000)
@@ -150,6 +151,8 @@ def main():
     print(f"flights: {tr.sum()} training, {va.sum()} validation; windows: {len(S_tr)} / {len(S_va)}", flush=True)
 
     model = model_from_config(dict(vars(a), norm=norm.to_dict()))
+    if a.compile and physics:
+        model.decoder.compile_step()
     if trunk_cfg:
         trunk = model_from_config(trunk_cfg)
         trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt"))

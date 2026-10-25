@@ -10,6 +10,7 @@
 
 set -euo pipefail
 mkdir -p runs/slurm
+source cluster/compiler.sh
 source /global/scratch/users/$USER/venvs/wingjepa/bin/activate
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 python "$@"

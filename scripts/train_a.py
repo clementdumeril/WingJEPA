@@ -153,6 +153,10 @@ def main():
     model = model_from_config(dict(vars(a), norm=norm.to_dict()))
     if a.compile and physics:
         model.decoder.compile_step()
+    # config written now as well (rewritten with the results at the end): a run stopped by the time
+    # limit keeps its best weights and can still be evaluated
+    json.dump(dict(vars(a), features=FEATURES, n_params=model.n_params(), norm=norm.to_dict()),
+              open(out / "config.json", "w"), indent=1)
     if trunk_cfg:
         trunk = model_from_config(trunk_cfg)
         trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt"))

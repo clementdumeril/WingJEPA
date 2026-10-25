@@ -171,7 +171,9 @@ class PhysicsHead(nn.Module):
         s_n, out, raws = s0, [], []
         for k in range(U.shape[1]):
             dC, raw = self.correction(zs[:, k], s_n, U[:, k])
-            x = self._step(x, Uph[:, k, :N_CTRL], dC, ac)
+            # contiguous copy: a strided view of Uph changes stride with the horizon T, and every new
+            # stride would make the compiled step recompile (then fall back to the slow path)
+            x = self._step(x, Uph[:, k, :N_CTRL].contiguous(), dC, ac)
             s_n = (self.to_features(x, Uph[:, k, N_CTRL + 2]) - mean_s) / std_s
             out.append(s_n)
             raws.append(raw)

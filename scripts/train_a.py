@@ -19,6 +19,11 @@ target = TAU * target + (1 - TAU) * encoder, with no gradient through the target
 v2 inputs by default (2 s of past, 5-layer encoder, mass and inertias as input). To redo a v1 run:
 --H 10 --channels 16,16,32 --dilations 1,2,4 --aircraft-input 0.
 
+Restart: the training state is saved every --checkpoint-min minutes in <out>/resume.pt. A run stopped by
+the time limit, resubmitted with the same command, continues where it stopped (same steps, same random
+draws); the file is deleted when the run finishes. --device cuda trains on a GPU (needs a CUDA build of
+torch, cluster/setup_gpu_env.sh); model.pt is always saved on the CPU.
+
 Usage: python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a --mode jepa
        python scripts/train_a.py ... --mode c_direct --prior <data_dir>/priors/ajuste.json
        python scripts/train_a.py ... --mode c_jepa --prior <...>/ajuste.json --trunk runs/jepa_v2T100_s0
@@ -48,11 +53,70 @@ def lr_at(step, total, peak, warmup, floor):
     return floor + 0.5 * (peak - floor) * (1 + math.cos(math.pi * min(x, 1.0)))
 
 
-def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, peak=None, after_step=None):
+class Resume:
+    """Training state saved in <out>/resume.pt (weights, optimizer, position in the stage, random
+    generators, log), at most every `every_min` minutes and after each new best. Loaded at start if
+    present, so that a resubmitted run continues where it stopped."""
+
+    def __init__(self, path, every_min, key, modules, sampler, log):
+        self.path, self.every, self.key = path, every_min * 60, key
+        self.modules, self.sampler, self.log = modules, sampler, log
+        self.done, self.stage, self.last = {}, None, time.time()
+        if path.exists():
+            st = torch.load(path, map_location="cpu", weights_only=False)
+            if st["key"] != key:
+                sys.exit(f"{path} was saved by a run with other options: delete it to start over")
+            for m, sd in zip(modules, st["modules"]):
+                m.load_state_dict(sd)
+            log[:] = st["log"]
+            sampler.rng.bit_generator.state = st["sampler_rng"]
+            torch.set_rng_state(st["torch_rng"])
+            if "cuda_rng" in st and torch.cuda.is_available():
+                torch.cuda.set_rng_state(st["cuda_rng"])
+            self.done, self.stage = st["done"], st["stage"]
+            print(f"resuming from {path}: stages done {list(self.done)}, "
+                  f"stage {self.stage['name']} from step {self.stage['step']}", flush=True)
+
+    def finished(self, name):
+        """Best validation value of a stage completed before the restart, None otherwise."""
+        return self.done.get(name)
+
+    def restore(self, name, opt):
+        """(first step, best, skipped batches, seconds already spent) of stage `name`."""
+        st = self.stage
+        if st is None or st["name"] != name:
+            return 0, float("inf"), 0, 0.0
+        opt.load_state_dict(st["opt"])
+        return st["step"], st["best"], st["skipped"], st["sec"]
+
+    def save(self, name, step, opt, best, skipped, sec, force=False):
+        if self.every <= 0 or not (force or time.time() - self.last >= self.every):
+            return
+        st = dict(key=self.key, modules=[m.state_dict() for m in self.modules], log=self.log, done=self.done,
+                  sampler_rng=self.sampler.rng.bit_generator.state, torch_rng=torch.get_rng_state(),
+                  stage=dict(name=name, step=step, opt=opt.state_dict(), best=best, skipped=skipped, sec=sec))
+        if torch.cuda.is_available():
+            st["cuda_rng"] = torch.cuda.get_rng_state()
+        tmp = self.path.with_suffix(".tmp")
+        torch.save(st, tmp)
+        os.replace(tmp, self.path)                  # never a half-written file, even if the job is killed
+        self.last = time.time()
+
+    def end_stage(self, name, best):
+        self.done[name] = best
+
+    def clear(self):
+        self.path.unlink(missing_ok=True)
+
+
+def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, peak=None, after_step=None):
+    if resume.finished(name) is not None:           # completed before the restart
+        return resume.finished(name)
     peak = peak or a.lr
     opt = torch.optim.Adam(params, lr=peak, weight_decay=a.weight_decay)
-    best, t0, skipped = float("inf"), time.time(), 0
-    for step in range(steps):
+    start, best, skipped, sec = resume.restore(name, opt)
+    t0 = time.time() - sec
+    for step in range(start, steps):
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, peak, a.warmup, a.lr_floor)
         loss, parts = loss_fn(step)
@@ -66,16 +130,20 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, peak=None
                 after_step()
         else:
             skipped += 1
+        improved = False
         if step % a.eval_every == 0 or step == steps - 1:
             with torch.no_grad():
                 val = float(val_fn())
             if val < best:
-                best = val
+                best, improved = val, True
                 save_best()
             rec = dict(stage=name, step=step, train=float(loss), val=float(val), best=float(best),
                        lr=opt.param_groups[0]["lr"], sec=round(time.time() - t0, 1), skipped=skipped, **parts)
             log.append(rec)
             print(json.dumps(rec), flush=True)
+        # saved with each new best as well, so that model.pt and the saved best always agree
+        resume.save(name, step + 1, opt, best, skipped, time.time() - t0, force=improved)
+    resume.end_stage(name, best)
     return best
 
 
@@ -117,11 +185,17 @@ def main():
     ap.add_argument("--val-windows", type=int, default=8192)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "4")))
+    ap.add_argument("--device", default="cpu", help="cpu, cuda, or auto (cuda if a GPU is visible)")
+    ap.add_argument("--checkpoint-min", type=float, default=15.0,
+                    help="minutes between saves of the training state (resume.pt); 0 = off")
     a = ap.parse_args()
 
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
     torch.set_num_threads(a.threads)
+    if a.device == "auto":
+        a.device = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = torch.device(a.device)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     physics = a.mode in ("c_direct", "c_jepa")
@@ -147,10 +221,12 @@ def main():
     S_tr = WindowSampler(Xn[tr], alive[tr], a.H, T_max, seed=a.seed, P=P[tr])
     S_va = WindowSampler(Xn[va], alive[va], a.H, T_max, seed=a.seed + 1, P=P[va])
     vrows = S_va.fixed_rows(a.val_windows)
-    val_seq, val_ac = torch.from_numpy(S_va.gather(vrows)), torch.from_numpy(S_va.aircraft(vrows))
-    print(f"flights: {tr.sum()} training, {va.sum()} validation; windows: {len(S_tr)} / {len(S_va)}", flush=True)
+    val_seq = torch.from_numpy(S_va.gather(vrows)).to(dev)
+    val_ac = torch.from_numpy(S_va.aircraft(vrows)).to(dev)
+    print(f"flights: {tr.sum()} training, {va.sum()} validation; windows: {len(S_tr)} / {len(S_va)}; "
+          f"device {dev}", flush=True)
 
-    model = model_from_config(dict(vars(a), norm=norm.to_dict()))
+    model = model_from_config(dict(vars(a), norm=norm.to_dict())).to(dev)
     if a.compile and physics:
         model.decoder.compile_step()
     # config written now as well (rewritten with the results at the end): a run stopped by the time
@@ -159,7 +235,7 @@ def main():
               open(out / "config.json", "w"), indent=1)
     if trunk_cfg:
         trunk = model_from_config(trunk_cfg)
-        trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt"))
+        trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt", map_location="cpu"))
         model.encoder.load_state_dict(trunk.encoder.state_dict())
         model.predictor.load_state_dict(trunk.predictor.state_dict())
     print(f"parameters: {model.n_params()} (total {sum(model.n_params().values())}); "
@@ -173,7 +249,8 @@ def main():
 
     def nxt(T):
         rows = S_tr.sample_rows(a.batch)
-        return torch.from_numpy(S_tr.gather(rows))[:, :H + T], torch.from_numpy(S_tr.aircraft(rows))
+        return (torch.from_numpy(S_tr.gather(rows)[:, :H + T]).to(dev),
+                torch.from_numpy(S_tr.aircraft(rows)).to(dev))
 
     def state_err(pred, seq):
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
@@ -183,12 +260,12 @@ def main():
         with torch.set_grad_enabled(torch.is_grad_enabled() and not frozen):
             z0, zs, U = model.latents(seq, H, True, ac)
         pred, raw = model.head_states(z0, zs, U, seq, H, ac)
-        res = (raw ** 2).mean() if raw is not None else torch.zeros(())
+        res = (raw ** 2).mean() if raw is not None else pred.new_zeros(())
         return state_err(pred, seq), res
 
     val_state = lambda: state_loss(val_seq, val_ac)[0]
     log = []
-    ckpt = lambda: torch.save(model.state_dict(), out / "model.pt")
+    ckpt = lambda: torch.save({k: v.cpu() for k, v in model.state_dict().items()}, out / "model.pt")
 
     target_enc = None
     if a.ema > 0:
@@ -202,6 +279,10 @@ def main():
             pt.mul_(a.ema).add_(p_.detach(), alpha=1 - a.ema)
 
     after = ema_update if target_enc is not None else None
+    # what must match for a restart: all the options but the machine-side ones
+    key = json.dumps({k: v for k, v in vars(a).items() if k not in ("threads", "device", "compile", "checkpoint_min")},
+                     sort_keys=True, default=str)
+    resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
 
     def jepa_loss(seq, ac):
         z0, zp, U = model.latents(seq, H, True, ac)
@@ -226,8 +307,10 @@ def main():
             zt = model.target_latents(val_seq, H, val_ac, encoder=target_enc)
             return ((zp - zt) ** 2).mean() / zt.reshape(-1, zt.shape[-1]).var(0).mean()
 
-        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt, after_step=after)
-        model.load_state_dict(torch.load(out / "model.pt"))
+        resumed_in_stage2 = resume.finished("jepa") is not None       # the weights are already those of stage 2
+        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt, resume, after_step=after)
+        if not resumed_in_stage2:
+            model.load_state_dict(torch.load(out / "model.pt"))
         if a.mode == "jepa":
             for p_ in trunk_params:
                 p_.requires_grad_(False)                              # stage 2: trunk frozen
@@ -235,13 +318,14 @@ def main():
             def loss2(step):
                 return state_loss(*nxt(T_max), frozen=True)[0], {}
 
-            best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt)
+            best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
+                              resume)
         else:                                                         # stage 2: fine-tune everything
             def loss2(step):
                 return state_loss(*nxt(T_max))[0], {}
 
             best2 = run_stage("finetune", list(model.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
-                              peak=a.ft_lr)
+                              resume, peak=a.ft_lr)
         summary = dict(best_val_jepa=best1, best_val_state=best2)
     elif a.mode == "joint":
         steps = a.steps1 + a.steps2
@@ -254,7 +338,7 @@ def main():
             return lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T)
 
         best = run_stage("joint", list(model.parameters()), loss_joint, val_state, steps, a, log, ckpt,
-                         after_step=after)
+                         resume, after_step=after)
         summary = dict(best_val_state=best)
     elif a.mode == "c_jepa":
         for p_ in trunk_params:
@@ -266,7 +350,7 @@ def main():
             return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
 
         best = run_stage("tete_physique", list(model.decoder.parameters()), loss_cj, val_state, a.steps2,
-                         a, log, ckpt)
+                         a, log, ckpt, resume)
         summary = dict(best_val_state=best)
     else:                                                             # a0, c_direct
         steps = a.steps1 + a.steps2
@@ -276,12 +360,13 @@ def main():
             ls, res = state_loss(*nxt(T))
             return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
 
-        best = run_stage(a.mode, list(model.parameters()), loss_direct, val_state, steps, a, log, ckpt)
+        best = run_stage(a.mode, list(model.parameters()), loss_direct, val_state, steps, a, log, ckpt, resume)
         summary = dict(best_val_state=best)
 
     cfg = dict(vars(a), features=FEATURES, n_params=model.n_params(), norm=norm.to_dict(), **summary)
     json.dump(cfg, open(out / "config.json", "w"), indent=1)
     json.dump(log, open(out / "log.json", "w"))
+    resume.clear()
     print(json.dumps(summary), flush=True)
 
 

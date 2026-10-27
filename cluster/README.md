@@ -59,7 +59,17 @@ squeue -u $USER                                                    # check your 
 ```
 
 The workload (JSBSim, models of ~100 k parameters) is mostly CPU, so the HTC partitions (`savio3_htc`, `savio4_htc`)
-fit. No GPU needed.
+fit.
+
+A training job stopped by the time limit can be resubmitted with the same command: it continues from
+`runs/<run>/resume.pt`, saved every 15 minutes (`cluster/smoke_resume.sbatch` checks that a resumed run matches a run
+done in one go).
+
+To compare CPU and GPU (JEPA spends most of its time encoding the target windows, a large batched convolution):
+```bash
+bash cluster/setup_gpu_env.sh            # once, on the login node: environment with a CUDA build of torch
+sbatch cluster/bench_device.sbatch       # same outputs on GPU and CPU, then seconds per step for each model
+```
 
 ## 5. Getting results back
 

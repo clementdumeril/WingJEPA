@@ -4,6 +4,10 @@
 #   e.g.: sbatch cluster/train_a.sbatch a0 0 T100 --T 20 --T-max 100
 # Outputs: runs/<mode>_<tag>_s<seed>/ (model.pt, config.json, log.json, eval_*.json)
 # CPUs: 16 by default; override with sbatch -c N (the thread count follows SLURM_CPUS_PER_TASK).
+# Stopped by the time limit: resubmit the same command, the run continues from runs/<...>/resume.pt.
+# On a GPU (GPU environment from cluster/setup_gpu_env.sh):
+#   sbatch --partition=savio3_gpu --qos=a40_gpu3_ica --gres=gpu:A40:1 -c 8 \
+#     --export=ALL,VENV=/global/scratch/users/$USER/venvs/wingjepa-gpu cluster/train_a.sbatch jepa 0 T100 ... --device cuda
 #SBATCH --job-name=wingjepa-train
 #SBATCH --account=ic_piml
 #SBATCH --partition=savio4_htc
@@ -15,7 +19,7 @@
 set -euo pipefail
 mkdir -p runs/slurm
 source cluster/compiler.sh
-source /global/scratch/users/$USER/venvs/wingjepa/bin/activate
+source ${VENV:-/global/scratch/users/$USER/venvs/wingjepa}/bin/activate
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 MODE=${1:-jepa}
 SEED=${2:-0}

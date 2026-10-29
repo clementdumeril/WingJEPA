@@ -30,6 +30,7 @@ def summarize(run):
     prior = (cfg.get("prior") or {}).get("name", "")
     row = dict(run=run.name, mode=cfg["mode"], seed=cfg["seed"], history_steps=cfg["H"],
                aircraft_input=int(bool(cfg.get("aircraft_input"))), head=cfg.get("head", "mlp"), prior=prior,
+               correction=cfg.get("correction", "free") if cfg.get("head") == "physics" else "",
                params=sum(cfg["n_params"].values()), best_val_state=round(cfg.get("best_val_state", float("nan")), 4))
     for g, (s, key) in GROUPS.items():
         f = run / f"eval_{s}.json"

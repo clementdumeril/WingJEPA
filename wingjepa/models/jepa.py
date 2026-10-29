@@ -99,7 +99,7 @@ class WorldModel(nn.Module):
     """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required)."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
-                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1):
+                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free"):
         super().__init__()
         self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx)
         self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim)
@@ -109,7 +109,8 @@ class WorldModel(nn.Module):
             self.decoder = MLPDecoder(z_dim, dec_hidden)
         else:
             from wingjepa.models.physics import PhysicsHead
-            self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub)
+            self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub,
+                                       correction=correction)
 
     def ctx(self, ac):
         """Aircraft parameters (B, 5) -> encoder input: relative deviation from nominal, / 0.3."""
@@ -174,4 +175,5 @@ def model_from_config(cfg, prior=None):
                       dilations=ints(cfg.get("dilations"), (1, 2, 4)),
                       n_ctx=5 if cfg.get("aircraft_input") else 0, head=head,
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
-                      out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1))
+                      out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
+                      correction=cfg.get("correction", "free"))

@@ -17,6 +17,13 @@ Control surfaces: the commands are used (first-order actuators with a 0.02 s tim
 
 The prior is a model linear in its parameters, with coefficients in stability axes like the NASA tables
 (regressors: TERMS; fitted, generic 25th, wrong or null: scripts/fit_prior.py).
+
+correction="param" (constrained head): no free forces. From z_0 alone (2 s of past + mass and inertias),
+the network outputs ONCE PER FLIGHT a change of each of the 38 prior coefficients (stability derivatives,
+control effectiveness, thrust curve): c = c_prior + scale * delta, scale = |c_prior| + 10 % of the mean
+|c| of its group. The physics then propagates the state with these coefficients, nothing is added step by
+step: the network can only identify the aircraft, the equations carry the dynamics. Needs a prior with
+structure (with the null prior the coefficients cannot move).
 """
 import math
 
@@ -56,10 +63,18 @@ class PhysicsHead(nn.Module):
     norm_mean, norm_std: normalization of the 16 quantities (to read the inputs and return normalized
     outputs, like the MLP decoder)."""
 
-    def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05):
+    def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05,
+                 correction="free"):
         super().__init__()
+        assert correction in ("free", "param"), correction
+        self.mode = correction
         for k in COEFS:
             self.register_buffer(f"c_{k}", torch.tensor(prior["coef"][k], dtype=torch.float32))
+        scale = []
+        for k in COEFS:
+            c = torch.tensor(prior["coef"][k], dtype=torch.float32).abs()
+            scale.append(c + 0.1 * c.mean() + 1e-6)
+        self.register_buffer("coef_scale", torch.cat(scale), persistent=False)     # (38,), rebuilt from the prior
         self.rho, self.S, self.b, self.c, self.g = (float(prior[k]) for k in ("rho", "S", "b", "c", "g"))
         self.register_buffer("mean", torch.as_tensor(norm_mean, dtype=torch.float32))
         self.register_buffer("std", torch.as_tensor(norm_std, dtype=torch.float32))
@@ -68,17 +83,30 @@ class PhysicsHead(nn.Module):
         self.register_buffer("hi", torch.tensor([80.0, 40, 40, 8, 8, 8, math.pi, 1.4]))
         self.out_scale, self.n_sub, self.dt = out_scale, n_sub, dt
         self._step = self.step                                   # replaced by a compiled version (compile_step())
-        self.net = nn.Sequential(nn.Linear(z_dim + N_STATE + N_CTRL + N_WIND, hidden), nn.GELU(),
-                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, 6))
+        if correction == "param":
+            n_in, n_out = z_dim, len(self.coef_scale)
+        else:
+            n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, 6
+        self.net = nn.Sequential(nn.Linear(n_in, hidden), nn.GELU(),
+                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, n_out))
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
 
     # ---------- prior
-    def prior_body(self, alpha, beta, de, da, dr, p, q, r, thr, Va):
-        """Prior coefficients in body axes (B, 6): CX, CY, CZ (thrust included), Cl, Cm, Cn."""
+    def coefficients(self, dcoef=None):
+        """The 38 coefficients in COEFS order: (38,) for the prior, (B, 38) changed by dcoef (B, 38)."""
+        c = torch.cat([getattr(self, f"c_{k}") for k in COEFS])
+        return c if dcoef is None else c + dcoef * self.coef_scale
+
+    def prior_body(self, alpha, beta, de, da, dr, p, q, r, thr, Va, dcoef=None):
+        """Prior coefficients in body axes (B, 6): CX, CY, CZ (thrust included), Cl, Cm, Cn.
+        dcoef (B, 38): per-flight change of the coefficients (constrained head), None = prior as is."""
         V2 = 2 * Va
         R = regressors(alpha, beta, de, da, dr, p * self.b / V2, q * self.c / V2, r * self.b / V2, thr, Va)
-        C = {k: sum(cf * x for cf, x in zip(getattr(self, f"c_{k}"), R[k])) for k in COEFS}
+        cf, C, i = self.coefficients(dcoef), {}, 0
+        for k in COEFS:
+            C[k] = sum(cf[..., i + j] * x for j, x in enumerate(R[k]))
+            i += len(R[k])
         qS = 0.5 * self.rho * Va * Va * self.S
         ca, sa = torch.cos(alpha), torch.sin(alpha)
         # stability axes -> body axes (as in UltraStick.forces)
@@ -111,12 +139,14 @@ class PhysicsHead(nn.Module):
 
     # ---------- dynamics
     def derivatives(self, x, ctrl, dC, ac):
-        """x (B, 8), ctrl (B, 4) physical, dC (B, 6) correction, ac (B, 5) mass and inertias."""
+        """x (B, 8), ctrl (B, 4) physical, ac (B, 5) mass and inertias; dC: correction, (B, 6) body-axis
+        coefficients added to the prior ("free"), or (B, 38) change of the prior coefficients ("param")."""
         # bounds also at the intermediate RK4 stages (otherwise theta can cross 90 deg there: infinite tan)
         x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         u, v, w, p, q, r, phi, th = x.unbind(-1)
         Va, alpha, beta = self.air_data(x)
-        C = self.prior_body(alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va) + dC
+        args = (alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va)
+        C = self.prior_body(*args, dcoef=dC) if self.mode == "param" else self.prior_body(*args) + dC
         qS = 0.5 * self.rho * Va * Va * self.S
         m, Ixx, Iyy, Izz, Ixz = ac.unbind(-1)
         g = self.g
@@ -147,9 +177,10 @@ class PhysicsHead(nn.Module):
             x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         return x
 
-    def correction(self, z, s_n, u_n):
-        """Correction (B, 6) and raw network output (for the size penalty)."""
-        raw = self.net(torch.cat([z, s_n, u_n], -1))
+    def correction(self, z, s_n=None, u_n=None):
+        """Correction and raw network output (for the size penalty): (B, 6) from z_k, the state and the
+        inputs ("free"), or (B, 38) coefficient changes from z_0 alone ("param")."""
+        raw = self.net(z if self.mode == "param" else torch.cat([z, s_n, u_n], -1))
         return raw * self.out_scale, raw
 
     def compile_step(self):
@@ -163,18 +194,23 @@ class PhysicsHead(nn.Module):
     def forward(self, zs, s0, U, ac):
         """zs (B, T, D): latents z_0..z_{T-1} (start of each step); s0 (B, 9): last observed state,
         normalized; U (B, T, 7): normalized future inputs; ac (B, 5).
-        -> normalized predicted states (B, T, 9), raw outputs of the correction (B, T, 6)."""
+        -> normalized predicted states (B, T, 9), raw outputs of the correction: (B, T, 6) ("free"),
+        or (B, 1, 38) ("param", one set of coefficients for the whole prediction)."""
         mean_s, std_s = self.mean[:N_STATE], self.std[:N_STATE]
         mean_u, std_u = self.mean[N_STATE:], self.std[N_STATE:]
         Uph = U * std_u + mean_u
         x = self.from_features(s0 * std_s + mean_s)
         s_n, out, raws = s0, [], []
+        if self.mode == "param":
+            dC, raw = self.correction(zs[:, 0])
+            raws.append(raw)
         for k in range(U.shape[1]):
-            dC, raw = self.correction(zs[:, k], s_n, U[:, k])
+            if self.mode == "free":
+                dC, raw = self.correction(zs[:, k], s_n, U[:, k])
+                raws.append(raw)
             # contiguous copy: a strided view of Uph changes stride with the horizon T, and every new
             # stride would make the compiled step recompile (then fall back to the slow path)
             x = self._step(x, Uph[:, k, :N_CTRL].contiguous(), dC, ac)
             s_n = (self.to_features(x, Uph[:, k, N_CTRL + 2]) - mean_s) / std_s
             out.append(s_n)
-            raws.append(raw)
         return torch.stack(out, 1), torch.stack(raws, 1)

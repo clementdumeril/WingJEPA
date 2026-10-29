@@ -12,6 +12,8 @@ Results per aircraft group and per turbulence level.
 Model C (physics head): in addition, "attribution": the correction learned at the first step is compared to
 what the prior is really missing (true simulator forces and moments - prior, at the same state); R2 per
 component (1 = the correction learned exactly the missing physics, 0 = nothing, < 0 = worse than nothing).
+Constrained head (--correction param): also "identification", does the per-flight coefficient change follow
+the true factor of each aircraft (aero factors on CD ... Cn, motor power)? Spearman correlation per group.
 
 Useful horizon = first instant where |altitude error| > 5 m, |speed error| > 1 m/s or
 |phi or theta error| > 10 deg.
@@ -31,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.data.windows import (N_CTRL, N_STATE, STATE, Normalizer, aircraft_params, features,  # noqa: E402
                                    load_set, split_mask, true_wind_features, window_starts)
 from wingjepa.models.jepa import model_from_config  # noqa: E402
+from wingjepa.models.physics import COEFS, TERMS  # noqa: E402
 
 DT = 0.05
 DEG = 180 / np.pi
@@ -76,7 +79,9 @@ def predict(model, norm, seq, H, hold_wind, ac=None, batch=512):
 
 @torch.no_grad()
 def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
-    """Correction learned at the first step vs physics really missing from the prior (R2 per component)."""
+    """Correction learned at the first step vs physics really missing from the prior (R2 per component).
+    Constrained head: the correction is the change of the body-axis coefficients due to the per-flight
+    coefficients, at the same state."""
     head = model.decoder
     st = window_starts(alive, H + 1)
     st = st[np.random.default_rng(seed).choice(len(st), min(n, len(st)), replace=False)]
@@ -85,7 +90,7 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
     ac = torch.from_numpy(P[f])
     z0 = model.encoder(seq[:, :H, :N_STATE], model.ctx(ac))
     U = model.future_inputs(seq, H, True)
-    dC, _ = head.correction(z0, seq[:, H - 1, :N_STATE], U[:, 0])
+    corr, _ = head.correction(z0, seq[:, H - 1, :N_STATE], U[:, 0])
     c = {k: torch.from_numpy(data[f, s, ch.index(k)].astype(np.float32)) for k in
          ["Va", "alpha", "beta", "p", "q", "r", "de_cmd", "da_cmd", "dr_cmd", "dt_cmd", "thrust",
           "Fx_aero", "Fy_aero", "Fz_aero", "Mx_aero", "My_aero", "Mz_aero", "Mx_prop", "My_prop", "Mz_prop"]}
@@ -94,15 +99,40 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
     true = torch.stack([(c["Fx_aero"] + c["thrust"]) / qS, c["Fy_aero"] / qS, c["Fz_aero"] / qS,
                         (c["Mx_aero"] + c["Mx_prop"]) / (qS * head.b), (c["My_aero"] + c["My_prop"]) / (qS * head.c),
                         (c["Mz_aero"] + c["Mz_prop"]) / (qS * head.b)], -1)
-    prior = head.prior_body(c["alpha"], c["beta"], c["de_cmd"], c["da_cmd"], c["dr_cmd"], c["p"], c["q"], c["r"],
-                            c["dt_cmd"], Va)
+    args = (c["alpha"], c["beta"], c["de_cmd"], c["da_cmd"], c["dr_cmd"], c["p"], c["q"], c["r"], c["dt_cmd"], Va)
+    prior = head.prior_body(*args)
     miss = (true - prior).numpy()
-    dC = dC.numpy()
+    dC = (head.prior_body(*args, dcoef=corr) - prior if head.mode == "param" else corr).numpy()
     out = {}
     for i, k in enumerate(BODY):
         out[k] = dict(r2=float(1 - np.mean((dC[:, i] - miss[:, i]) ** 2) / max(miss[:, i].var(), 1e-12)),
                       rms_manquant=float(np.sqrt(np.mean(miss[:, i] ** 2))),
                       rms_correction=float(np.sqrt(np.mean(dC[:, i] ** 2))))
+    return out
+
+
+@torch.no_grad()
+def identification(model, norm, X, alive, P, meta, H, n=20000, seed=0):
+    """Constrained head: per-flight multiplier of each coefficient group learned from z_0 (least-squares
+    fit dc = m * c over the group's terms) vs the true factor of the aircraft minus 1. Spearman correlation
+    over windows (several per flight, so no p-value), and the spread of both."""
+    from scipy.stats import spearmanr
+    head = model.decoder
+    st = window_starts(alive, H)
+    st = st[np.random.default_rng(seed).choice(len(st), min(n, len(st)), replace=False)]
+    f = st[:, 0]
+    seq = torch.from_numpy(norm(X[f[:, None], st[:, 1:2] + np.arange(H)]))
+    z0 = model.encoder(seq[:, :, :N_STATE], model.ctx(torch.from_numpy(P[f])))
+    dc = (head.correction(z0)[0] * head.coef_scale).numpy()
+    c = head.coefficients().numpy()
+    out, i = {}, 0
+    for k in COEFS:
+        j = slice(i, i + len(TERMS[k]))
+        m = dc[:, j] @ c[j] / max(float(c[j] @ c[j]), 1e-12)
+        true = (meta["power_scale"] if k == "T" else meta[f"aero_scale_{k}"])[f] - 1
+        out[k] = dict(spearman=float(spearmanr(m, true)[0]), std_learned=float(m.std()),
+                      std_true=float(true.std()))
+        i += len(TERMS[k])
     return out
 
 
@@ -205,6 +235,14 @@ def main():
             for k, v in at.items():
                 print(f"      {k:3s} R2 {v['r2']:+.2f}   RMS manquant {v['rms_manquant']:.4f}   "
                       f"RMS correction {v['rms_correction']:.4f}")
+        if cfg.get("correction") == "param":
+            ident = identification(model, norm, X[idx], alive[idx], P[idx],
+                                   {k: v[idx] for k, v in meta.items() if k.startswith(("aero_scale", "power"))}, H)
+            results[gname]["identification"] = ident
+            print("   identification (learned per-flight multiplier vs true aircraft factor - 1):")
+            for k, v in ident.items():
+                print(f"      {k:3s} Spearman {v['spearman']:+.2f}   spread learned {v['std_learned']:.3f}   "
+                      f"true {v['std_true']:.3f}")
 
     out = Path(a.model_dir) / f"eval_{a.set}.json"
     json.dump(results, open(out, "w"), indent=1)

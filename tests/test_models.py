@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from fit_prior import generic_25e  # noqa: E402
 from wingjepa.data.windows import N_STATE, Normalizer  # noqa: E402
 from wingjepa.models.jepa import TCNEncoder, model_from_config  # noqa: E402
-from wingjepa.models.physics import PhysicsHead  # noqa: E402
+from wingjepa.models.physics import COEFS, TERMS, PhysicsHead  # noqa: E402
 from wingjepa.sim.ultrastick import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W,  # noqa: E402
                                      UltraStick, isa_density, load_config)
 
@@ -81,3 +81,45 @@ def test_v1_run_config_still_loads():
     seq = torch.randn(4, 30, 16)
     pred, extra = m.predict_states(seq, 10)
     assert pred.shape == (4, 20, N_STATE) and extra is None
+
+
+def _prior_25e():
+    p = load_config(ROOT / "configs/ultrastick25e_validation.yaml")
+    return dict(coef=generic_25e(p, [0.0] * 6), rho=float(isa_density(100.0)), S=p["S"], b=p["b"], c=p["c"], g=p["g"])
+
+
+def test_constrained_head_changes_one_coefficient_group():
+    """A per-flight change of the Cl group by +20 % scales the rolling moment by 1.2 (at zero incidence,
+    where stability and body axes coincide) and leaves the other five components as they are."""
+    head = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction="param").double()
+    torch.manual_seed(0)
+    n = 5
+    alpha = torch.zeros(n, dtype=torch.float64)
+    beta, da, dr, p, r = (0.1 * torch.randn(n, dtype=torch.float64) for _ in range(5))
+    args = (alpha, beta, 0 * alpha, da, dr, p, 0 * alpha, r, 0.5 + 0 * alpha, 18 + 0 * alpha)
+    c, dcoef, i = head.coefficients(), torch.zeros(n, len(head.coef_scale), dtype=torch.float64), 0
+    for k in COEFS:
+        if k == "Cl":
+            dcoef[:, i:i + 5] = 0.2 * c[i:i + 5] / head.coef_scale[i:i + 5]
+        i += len(TERMS[k])
+    base, changed = head.prior_body(*args), head.prior_body(*args, dcoef=dcoef)
+    np.testing.assert_allclose(changed[:, 3].numpy(), 1.2 * base[:, 3].numpy(), rtol=1e-10)
+    keep = [0, 1, 2, 4, 5]
+    np.testing.assert_allclose(changed[:, keep].numpy(), base[:, keep].numpy(), rtol=1e-12)
+
+
+def test_constrained_head_starts_as_the_prior():
+    """Untrained, the free and the constrained heads both predict exactly the prior's trajectory; the
+    constrained head returns one set of 38 coefficient changes per prediction."""
+    torch.manual_seed(0)
+    B, T = 3, 8
+    s0 = torch.tensor([[18.0, 0.05, 0.01, 0.05, -0.02, 0.03, 0.2, 0.06, 0.0]]).repeat(B, 1)
+    U = torch.cat([0.02 * torch.randn(B, T, 3), torch.full((B, T, 1), 0.5), torch.zeros(B, T, 3)], -1)
+    ac = torch.tensor([[6.8, 0.67, 0.89, 1.58, -0.76]]).repeat(B, 1)
+    zs = torch.randn(B, T, 32)
+    out = {}
+    for mode in ("free", "param"):
+        head = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction=mode)
+        out[mode] = head(zs, s0, U, ac)
+    torch.testing.assert_close(out["free"][0], out["param"][0])
+    assert out["free"][1].shape == (B, T, 6) and out["param"][1].shape == (B, 1, 38)

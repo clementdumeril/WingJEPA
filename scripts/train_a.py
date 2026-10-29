@@ -10,6 +10,9 @@
                    error + --lambda-res * size of the learned correction (APHYNITY idea).
   --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
                    learned (like the SkyJEPA physics probe), same loss as c_direct.
+  --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
+                   are changed once per flight from z_0 (models/physics.py). Default free: 6 body-axis
+                   coefficients added to the prior at every step.
 Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
 --curriculum-frac of the training); validation always uses --T-max.
 The best weights on the validation flights are kept.
@@ -137,7 +140,7 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, p
             if val < best:
                 best, improved = val, True
                 save_best()
-            rec = dict(stage=name, step=step, train=float(loss), val=float(val), best=float(best),
+            rec = dict(stage=name, step=step, train=loss.item(), val=float(val), best=float(best),
                        lr=opt.param_groups[0]["lr"], sec=round(time.time() - t0, 1), skipped=skipped, **parts)
             log.append(rec)
             print(json.dumps(rec), flush=True)
@@ -165,6 +168,8 @@ def main():
     ap.add_argument("--trunk", default=None, help="jepa run whose frozen trunk is reused (c_jepa mode)")
     ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
+    ap.add_argument("--correction", choices=["free", "param"], default="free",
+                    help="physics head: free forces at every step, or prior coefficients changed once per flight")
     ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
     ap.add_argument("--compile", type=int, default=0, help="1: compile the physics-head step (torch.compile)")
     ap.add_argument("--z-dim", type=int, default=32)

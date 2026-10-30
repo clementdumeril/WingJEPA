@@ -66,7 +66,7 @@ def main():
             continue
         dst = out / run.name
         dst.mkdir(parents=True, exist_ok=True)
-        for f in ("log.json", "eval_train.json", "eval_test_long.json", "eval_position_test_long.json"):
+        for f in ("log.json", "eval_train.json", "eval_test_long.json", "eval_position_test_long.json", "probe.json"):
             if (run / f).exists():
                 shutil.copy(run / f, dst / f)
         cfg = json.load(open(run / "config.json"))

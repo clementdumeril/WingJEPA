@@ -16,6 +16,7 @@ Q3. Why does no model generalize to extreme aircraft?
 Usage: python scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -101,6 +102,7 @@ def main():
             print(f"      {k:8s} " + "".join(f"{v:9.3f}" for v in r))
         pr = probe_present_state(model, norm, Xtr, atr, Ptr, tr, va, H)
         print(f"      probe (present state read from z(t), normalized error, 0 = perfect, 1 = nothing): {pr}")
+        json.dump(dict(probe=pr, data_dir=Path(a.data_dir).name), open(Path(d) / "probe.json", "w"), indent=1)
 
         # ---------- Q2: altitude at long range
         print("[Q2] altitude at long range, training aircraft:")

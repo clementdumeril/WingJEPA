@@ -118,7 +118,7 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, p
     peak = peak or a.lr
     opt = torch.optim.Adam(params, lr=peak, weight_decay=a.weight_decay)
     start, best, skipped, sec = resume.restore(name, opt)
-    t0 = time.time() - sec
+    t0, streak = time.time() - sec, 0
     for step in range(start, steps):
         for g in opt.param_groups:
             g["lr"] = lr_at(step, steps, peak, a.warmup, a.lr_floor)
@@ -129,10 +129,15 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, p
         # a batch with a non-finite loss or gradient is skipped: a single NaN would be enough to destroy the weights
         if torch.isfinite(loss) and torch.isfinite(gnorm):
             opt.step()
+            streak = 0
             if after_step:
                 after_step()
         else:
-            skipped += 1
+            skipped, streak = skipped + 1, streak + 1
+            # every batch non-finite: the weights no longer move, the run is dead (stop instead of idling)
+            if streak >= a.max_skip_streak:
+                sys.exit(f"{name}: {streak} batches in a row with a non-finite loss or gradient at step {step}, "
+                         f"training diverged (best validation {best:.4g}, kept in model.pt)")
         improved = False
         if step % a.eval_every == 0 or step == steps - 1:
             with torch.no_grad():
@@ -170,6 +175,10 @@ def main():
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--correction", choices=["free", "param"], default="free",
                     help="physics head: free forces at every step, or prior coefficients changed once per flight")
+    ap.add_argument("--param-bound", type=float, default=0.0,
+                    help="constrained head: largest change of a coefficient, in units of its scale (0 = no bound)")
+    ap.add_argument("--max-skip-streak", type=int, default=500,
+                    help="stop when this many batches in a row have a non-finite loss or gradient")
     ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
     ap.add_argument("--compile", type=int, default=0, help="1: compile the physics-head step (torch.compile)")
     ap.add_argument("--z-dim", type=int, default=32)
@@ -284,8 +293,11 @@ def main():
             pt.mul_(a.ema).add_(p_.detach(), alpha=1 - a.ema)
 
     after = ema_update if target_enc is not None else None
-    # what must match for a restart: all the options but the machine-side ones
-    key = json.dumps({k: v for k, v in vars(a).items() if k not in ("threads", "device", "compile", "checkpoint_min")},
+    # what must match for a restart: all the options but the machine-side ones; options added after
+    # resume.pt existed are left out at their default, so that the runs started before can still resume
+    machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
+    later = dict(param_bound=0.0)
+    key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
 

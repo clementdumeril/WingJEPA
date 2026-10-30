@@ -123,3 +123,15 @@ def test_constrained_head_starts_as_the_prior():
         out[mode] = head(zs, s0, U, ac)
     torch.testing.assert_close(out["free"][0], out["param"][0])
     assert out["free"][1].shape == (B, T, 6) and out["param"][1].shape == (B, 1, 38)
+
+
+def test_constrained_head_bound():
+    """With --param-bound B, even a huge network output changes no coefficient by more than B * scale, and
+    a small one is left as without bound."""
+    head = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction="param", param_bound=1.0)
+    z = torch.randn(4, 32)
+    with torch.no_grad():
+        head.net[-1].bias.fill_(1e3)
+        assert head.correction(z)[0].abs().max() <= 1.0
+        head.net[-1].bias.fill_(1e-3)
+        torch.testing.assert_close(head.correction(z)[0], torch.full((4, 38), 1e-4), rtol=1e-4, atol=0)

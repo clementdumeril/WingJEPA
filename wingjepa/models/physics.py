@@ -24,6 +24,9 @@ control effectiveness, thrust curve): c = c_prior + scale * delta, scale = |c_pr
 |c| of its group. The physics then propagates the state with these coefficients, nothing is added step by
 step: the network can only identify the aircraft, the equations carry the dynamics. Needs a prior with
 structure (with the null prior the coefficients cannot move).
+param_bound B > 0: delta = B * tanh(out_scale * raw / B), each coefficient stays within +-B * scale of the
+prior (same as unbounded for small changes). Without it, a poor prior can push coefficients through a sign
+change, the dynamics diverge and the training stops learning.
 """
 import math
 
@@ -64,10 +67,10 @@ class PhysicsHead(nn.Module):
     outputs, like the MLP decoder)."""
 
     def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05,
-                 correction="free"):
+                 correction="free", param_bound=0.0):
         super().__init__()
         assert correction in ("free", "param"), correction
-        self.mode = correction
+        self.mode, self.param_bound = correction, param_bound
         for k in COEFS:
             self.register_buffer(f"c_{k}", torch.tensor(prior["coef"][k], dtype=torch.float32))
         scale = []
@@ -181,6 +184,8 @@ class PhysicsHead(nn.Module):
         """Correction and raw network output (for the size penalty): (B, 6) from z_k, the state and the
         inputs ("free"), or (B, 38) coefficient changes from z_0 alone ("param")."""
         raw = self.net(z if self.mode == "param" else torch.cat([z, s_n, u_n], -1))
+        if self.mode == "param" and self.param_bound > 0:
+            return self.param_bound * torch.tanh(raw * self.out_scale / self.param_bound), raw
         return raw * self.out_scale, raw
 
     def compile_step(self):

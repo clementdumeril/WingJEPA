@@ -88,7 +88,7 @@ def useful_horizon(runs, out):
     y = np.arange(len(labels))[::-1]
     for ax, (g, title) in zip(axes, GROUPS.items()):
         m = np.array([stat(runs[l], g, "modele_vent_estime", "horizon") for l in labels])
-        ax.barh(y, m[:, 0], xerr=[m[:, 0] - m[:, 1], m[:, 2] - m[:, 0]], color="tab:blue", alpha=0.8, capsize=3)
+        ax.barh(y, m[:, 0], xerr=np.clip([m[:, 0] - m[:, 1], m[:, 2] - m[:, 0]], 0, None), color="tab:blue", alpha=0.8, capsize=3)
         first = runs[labels[0]]
         for who, style, name in (("reference", "--", "constant state"),
                                  ("reference_altitude_constante", ":", "constant altitude")):
@@ -141,7 +141,7 @@ def paired_bars(values, xlabel, title, out, baselines=None):
                 if v is None:
                     continue
                 ax.barh(yi, v[0], height=h - 0.04, color=color, label=cname)     # legend: deduplicated below
-                ax.errorbar(v[0], yi, xerr=[[v[0] - v[1]], [v[2] - v[0]]], color="0.25", lw=1, capsize=2)
+                ax.errorbar(v[0], yi, xerr=np.clip([[v[0] - v[1]], [v[2] - v[0]]], 0, None), color="0.25", lw=1, capsize=2)
         for cname, (val, style) in (baselines or {}).get(g, {}).items():
             ax.axvline(val, color="0.2", ls=style, lw=1, label=f"baseline, {cname}")
         ax.set_title(gtitle)

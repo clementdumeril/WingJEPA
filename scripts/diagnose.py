@@ -49,11 +49,11 @@ def probe_present_state(model, norm, X, alive, P, tr, va, H, steps=1500):
         rows = St.sample_rows(1024)
         s, ac = torch.from_numpy(St.gather(rows)), torch.from_numpy(St.aircraft(rows))
         with torch.no_grad():
-            z = model.encoder(s[:, :H, :N_STATE], model.ctx(ac))
+            z = model.encode(s[:, :H], ac)
         loss = ((probe(z) - s[:, H - 1, :N_STATE]) ** 2).mean()
         opt.zero_grad(); loss.backward(); opt.step()
     with torch.no_grad():
-        e = ((probe(model.encoder(vs[:, :H, :N_STATE], model.ctx(vac))) - vs[:, H - 1, :N_STATE]) ** 2).mean(0)
+        e = ((probe(model.encode(vs[:, :H], vac)) - vs[:, H - 1, :N_STATE]) ** 2).mean(0)
     return dict(zip(STATE, e.numpy().round(3).tolist()))
 
 

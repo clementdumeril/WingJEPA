@@ -1,8 +1,9 @@
 """JEPA-type latent world model (docs/model_design.md): TCN encoder, GRU predictor, decoder.
 
-  past: states only (B, H, 9) --encoder--> z (B, D)
-  (as in SkyJEPA: the encoder sees neither the controls nor the wind, otherwise the latent mostly learns
-  these slow, easy-to-predict signals instead of the aircraft dynamics -- checked on a small trial)
+  past: states (B, H, 9) --encoder--> z (B, D)
+  (by default the encoder sees neither the controls nor the wind. With action_history, a second TCN reads
+  the past commands, as the action encoder of SkyJEPA does: the states alone do not say which commands
+  produced the recent motion)
   z_k, input_k (controls + wind held constant) --predictor--> z_{k+1}
   z_k --decoder--> state (B, 9)
 The decoder is the "head": black box (model A, MLP) or physics head (model C, models/physics.py).
@@ -32,19 +33,38 @@ class CausalBlock(nn.Module):
         return y + self.skip(x)
 
 
+def causal_tcn(c, channels, k, dilations):
+    blocks = []
+    for ch, d in zip(channels, dilations):
+        blocks.append(CausalBlock(c, ch, k, d))
+        c = ch
+    return nn.Sequential(*blocks)
+
+
 class TCNEncoder(nn.Module):
-    def __init__(self, n_in=16, channels=(16, 16, 32), k=3, dilations=(1, 2, 4), z_dim=32, n_ctx=0):
+    """Causal TCN over the past states. n_act > 0: a second TCN (act_channels per layer, same dilations)
+    over the past commands, stored after the n_in states in the input; its summary joins the state summary
+    and the aircraft parameters before the output layer. The commands are shifted by one step: the command
+    of step k is applied from k to k+1, so the window ending at a state sees exactly the commands that led
+    to it, and none that the predictor has not been given yet."""
+
+    def __init__(self, n_in=16, channels=(16, 16, 32), k=3, dilations=(1, 2, 4), z_dim=32, n_ctx=0, n_act=0,
+                 act_channels=16):
         super().__init__()
-        blocks, c = [], n_in
-        for ch, d in zip(channels, dilations):
-            blocks.append(CausalBlock(c, ch, k, d))
-            c = ch
-        self.tcn = nn.Sequential(*blocks)
+        self.n_in, self.n_act = n_in, n_act
+        self.tcn = causal_tcn(n_in, channels, k, dilations)
+        c = channels[-1]
+        if n_act:
+            self.act_tcn = causal_tcn(n_act, (act_channels,) * len(dilations), k, dilations)
+            c += act_channels
         self.out = nn.Linear(c + n_ctx, z_dim)
         self.receptive_field = 1 + (k - 1) * sum(dilations)
 
-    def forward(self, past, ctx=None):              # past : (B, H, n_in) ; ctx : (B, n_ctx), constant over the flight
-        h = self.tcn(past.transpose(1, 2))[:, :, -1]               # last step
+    def forward(self, past, ctx=None):              # past : (B, H, n_in + n_act) ; ctx : (B, n_ctx), constant over the flight
+        h = self.tcn(past[:, :, :self.n_in].transpose(1, 2))[:, :, -1]          # last step
+        if self.n_act:
+            u = F.pad(past[:, :-1, self.n_in:].transpose(1, 2), (1, 0))       # commands delayed by one step
+            h = torch.cat([h, self.act_tcn(u)[:, :, -1]], -1)
         if ctx is not None:
             h = torch.cat([h, ctx], -1)
         return self.out(h)
@@ -96,13 +116,16 @@ NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 
 class WorldModel(nn.Module):
-    """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required)."""
+    """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required).
+    action_history: the encoder also reads the past commands (second TCN)."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
                  n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free",
-                 param_bound=0.0):
+                 param_bound=0.0, action_history=False):
         super().__init__()
-        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx)
+        n_act = N_CTRL if action_history else 0
+        self.n_past = N_STATE + n_act                                  # channels of seq the encoder reads
+        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act)
         self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
@@ -119,6 +142,10 @@ class WorldModel(nn.Module):
             return None
         return (ac / self.ac_nominal - 1) / 0.3
 
+    def encode(self, past, ac=None):
+        """past : (B, H, 16) normalized window (states, commands, wind) -> z (B, D)."""
+        return self.encoder(past[:, :, :self.n_past], self.ctx(ac))
+
     @staticmethod
     def future_inputs(seq, H, hold_wind=True):
         """Predictor inputs for the future steps: controls actually applied, and estimated wind
@@ -134,7 +161,7 @@ class WorldModel(nn.Module):
     def latents(self, seq, H, hold_wind=True, ac=None):
         """seq : (B, H+T, 16) -> z_0 (B, D), predicted latents z_1..z_T (B, T, D), future inputs (B, T, 7)."""
         U = self.future_inputs(seq, H, hold_wind)
-        z0 = self.encoder(seq[:, :H, :N_STATE], self.ctx(ac))
+        z0 = self.encode(seq[:, :H], ac)
         return z0, self.predictor.rollout(z0, U), U
 
     def predict_latents(self, seq, H, hold_wind=True, ac=None):
@@ -155,7 +182,7 @@ class WorldModel(nn.Module):
     def target_latents(self, seq, H, ac=None, encoder=None):
         """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D).
         encoder: another encoder for the targets (slow EMA copy), default the model's own."""
-        win = seq[:, :, :N_STATE].unfold(1, H, 1)[:, 1:]             # (B, T, 9, H)
+        win = seq[:, :, :self.n_past].unfold(1, H, 1)[:, 1:]         # (B, T, n_past, H)
         B, T = win.shape[:2]
         c = self.ctx(ac)
         c = None if c is None else c.repeat_interleave(T, 0)
@@ -177,4 +204,5 @@ def model_from_config(cfg, prior=None):
                       n_ctx=5 if cfg.get("aircraft_input") else 0, head=head,
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
-                      correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0))
+                      correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
+                      action_history=bool(cfg.get("action_history", 0)))

@@ -13,6 +13,8 @@
   --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
                    are changed once per flight from z_0 (models/physics.py). Default free: 6 body-axis
                    coefficients added to the prior at every step.
+--action-history 1: the encoder also reads the commands of the past 2 s (second TCN, as in SkyJEPA); a
+                   c_jepa run takes this from its trunk.
 Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
 --curriculum-frac of the training); validation always uses --T-max.
 The best weights on the validation flights are kept.
@@ -165,6 +167,8 @@ def main():
     ap.add_argument("--channels", default="16,16,32,32,32", help="channels of the encoder layers")
     ap.add_argument("--dilations", default="1,2,4,8,16", help="receptive field = 1 + 2 * sum")
     ap.add_argument("--aircraft-input", type=int, default=1, help="mass and inertias as input (1) or not (0)")
+    ap.add_argument("--action-history", type=int, default=0,
+                    help="1: the encoder also reads the past commands (second TCN, as in SkyJEPA)")
     ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
     ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
@@ -224,6 +228,7 @@ def main():
         trunk_cfg = json.load(open(Path(a.trunk) / "config.json"))
         for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # trunk architecture
             setattr(a, k, trunk_cfg.get(k, getattr(a, k)))
+        a.action_history = trunk_cfg.get("action_history", 0)
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
@@ -296,7 +301,7 @@ def main():
     # what must match for a restart: all the options but the machine-side ones; options added after
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
-    later = dict(param_bound=0.0)
+    later = dict(param_bound=0.0, action_history=0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)

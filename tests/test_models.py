@@ -83,6 +83,28 @@ def test_v1_run_config_still_loads():
     assert pred.shape == (4, 20, N_STATE) and extra is None
 
 
+def test_action_history_encoder_sees_only_the_commands_already_applied():
+    """With --action-history the latent depends on the command of step H-2 (it produced the state of step
+    H-1) but not on the one of step H-1 (applied after the last state, given to the predictor instead)."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    m = model_from_config(dict(z_dim=32, norm=norm, H=40, channels="16,16,32,32,32", dilations="1,2,4,8,16",
+                               aircraft_input=1, action_history=1, seed=0))
+    H, ac = 40, torch.full((2, 5), 1.0) * m.ac_nominal
+    seq = torch.randn(2, H + 20, 16)
+    z = m.encode(seq[:, :H], ac)
+    last, before = seq.clone(), seq.clone()
+    last[:, H - 1, N_STATE:N_STATE + 4] += 1.0
+    before[:, H - 2, N_STATE:N_STATE + 4] += 1.0
+    assert torch.allclose(m.encode(last[:, :H], ac), z)
+    assert not torch.allclose(m.encode(before[:, :H], ac), z)
+    wind = seq.clone()
+    wind[:, :H, N_STATE + 4:] += 1.0                                   # the wind is not read
+    assert torch.allclose(m.encode(wind[:, :H], ac), z)
+    pred, _ = m.predict_states(seq, H, ac=ac)
+    assert pred.shape == (2, 20, N_STATE) and m.target_latents(seq, H, ac).shape == (2, 20, 32)
+
+
 def _prior_25e():
     p = load_config(ROOT / "configs/ultrastick25e_validation.yaml")
     return dict(coef=generic_25e(p, [0.0] * 6), rho=float(isa_density(100.0)), S=p["S"], b=p["b"], c=p["c"], g=p["g"])

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WingJEPA flight paths</title>
+<!-- Template filled by scripts/make_trajectory_3d.py: the paths replace the DATA placeholder below. -->
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6b6b70; --grid: #e3e3e6; --card: #f5f5f7; --truth: #111111; --hist: #a0a0a6; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #141416; --fg: #ececef; --muted: #a0a0a8; --grid: #2e2e33; --card: #1e1e21; --truth: #f2f2f2; --hist: #75757b; }
+}
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 32px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+p { margin: 0 0 10px; color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--grid); background: var(--card); color: var(--fg); cursor: pointer; }
+button[aria-pressed="true"] { border-color: var(--fg); font-weight: 600; }
+input[type=range] { flex: 1; min-width: 160px; }
+#clock { font-variant-numeric: tabular-nums; min-width: 9em; }
+#plot { width: 100%; height: min(70vh, 620px); }
+table { border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+th, td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid var(--grid); }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.note { font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Where each world model thinks the aircraft goes</h1>
+  <p id="sub"></p>
+  <div class="bar" id="panels"></div>
+  <div class="bar">
+    <button id="play">Play</button>
+    <input id="t" type="range" min="0" value="0" aria-label="time after the last measurement">
+    <span id="clock"></span>
+  </div>
+  <div id="plot"></div>
+  <table id="err"></table>
+  <p class="note" id="note"></p>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const L = DATA.panels[0].truth.length - 1;
+let p = 0, k = L, timer = null;
+
+$("sub").textContent = (DATA.title ? DATA.title + ". " : "") + "Each model gets 2 s of measured states (grey), then predicts alone for "
+  + DATA.horizon_s + " s from the commands. Drag to rotate, scroll to zoom, click a legend entry to hide a model.";
+$("t").max = L;
+
+DATA.panels.forEach((pn, i) => {
+  const b = document.createElement("button");
+  b.textContent = pn.title;
+  b.onclick = () => { p = i; render(); };
+  $("panels").appendChild(b);
+});
+
+const cols = (a, n0, n1) => ({ x: a.slice(n0, n1).map(v => v[0]), y: a.slice(n0, n1).map(v => v[1]), z: a.slice(n0, n1).map(v => v[2]) });
+
+function traces() {
+  const pn = DATA.panels[p];
+  const hover = name => name + "<br>east %{x:.0f} m<br>north %{y:.0f} m<br>altitude %{z:.0f} m<extra></extra>";
+  const path = (a, name, color, width) => [
+    { type: "scatter3d", mode: "lines", name, legendgroup: name, line: { color, width }, hovertemplate: hover(name), ...cols(a, 0, k + 1) },
+    { type: "scatter3d", mode: "markers", legendgroup: name, showlegend: false, marker: { size: 4, color }, hoverinfo: "skip", ...cols(a, k, k + 1) },
+  ];
+  return [
+    { type: "scatter3d", mode: "lines", name: "2 s of history", line: { color: css("--hist"), width: 6 }, hoverinfo: "skip", ...cols(pn.history, 0) },
+    ...path(pn.truth, "simulator (truth)", css("--truth"), 6),
+    ...Object.entries(pn.models).flatMap(([m, a], i) => path(a, m, COLORS[i % COLORS.length], 4)),
+  ];
+}
+
+function layout() {
+  const pn = DATA.panels[p];
+  const all = [...pn.history, ...pn.truth, ...Object.values(pn.models).flat()];
+  const lo = [0, 1, 2].map(i => Math.min(...all.map(v => v[i]))), hi = [0, 1, 2].map(i => Math.max(...all.map(v => v[i])));
+  const c = [0, 1].map(i => (lo[i] + hi[i]) / 2);
+  const r = Math.max(hi[0] - lo[0], hi[1] - lo[1]) / 2 * 1.05 + 1;              // same scale east and north
+  const zp = 0.1 * (hi[2] - lo[2]) + 1;
+  const axis = (title, range) => ({ title, range, color: css("--muted"), gridcolor: css("--grid"), zerolinecolor: css("--grid"), showbackground: false });
+  return {
+    paper_bgcolor: css("--bg"), font: { color: css("--fg"), family: "system-ui, sans-serif" },
+    margin: { l: 0, r: 0, t: 40, b: 0 }, uirevision: p,
+    legend: { orientation: "h", x: 0, y: 1.02, yanchor: "bottom", bgcolor: "rgba(0,0,0,0)" },
+    scene: {
+      uirevision: p, aspectmode: "manual", aspectratio: { x: 1, y: 1, z: 0.5 },
+      camera: { eye: { x: -0.95, y: -1.2, z: 0.55 } },
+      xaxis: axis("east [m]", [c[0] - r, c[0] + r]), yaxis: axis("north [m]", [c[1] - r, c[1] + r]),
+      zaxis: axis("altitude change [m]", [lo[2] - zp, hi[2] + zp]),
+    },
+  };
+}
+
+function table() {
+  const pn = DATA.panels[p];
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const t = (k * DATA.dt).toFixed(1);
+  const rows = Object.entries(pn.models).map(([m, a], i) =>
+    `<tr><td><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>${m}</td>`
+    + `<td class="n">${d(a[k], pn.truth[k]).toFixed(0)} m</td><td class="n">${d(a[L], pn.truth[L]).toFixed(0)} m</td></tr>`);
+  $("err").innerHTML = `<tr><th>Model</th><th>distance to the truth at ${t} s</th><th>at ${DATA.horizon_s} s</th></tr>` + rows.join("");
+  $("note").textContent = `Flight ${pn.flight}, prediction starting ${(pn.start_s + 2).toFixed(1)} s into the flight. `
+    + "One start drawn at random, not hand-picked: a single draw, not a statistic. Origin: last measured position.";
+}
+
+function render() {
+  Plotly.react("plot", traces(), layout(), { responsive: true, displaylogo: false });
+  [...$("panels").children].forEach((b, i) => b.setAttribute("aria-pressed", i === p));
+  $("t").value = k;
+  $("clock").textContent = `t = ${(k * DATA.dt).toFixed(1)} s`;
+  table();
+}
+
+function stop() { clearInterval(timer); timer = null; $("play").textContent = "Play"; }
+$("play").onclick = () => {
+  if (timer) return stop();
+  if (k >= L) k = 0;
+  $("play").textContent = "Pause";
+  timer = setInterval(() => { k = Math.min(L, k + 2); render(); if (k >= L) stop(); }, 40);
+};
+$("t").oninput = e => { stop(); k = +e.target.value; render(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>

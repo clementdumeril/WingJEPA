@@ -6,8 +6,9 @@ for the position error (scripts/position_error.py: heading from the predicted ra
 to north-east plus the held wind, vertical speed integrated). One start is drawn at random (--seed) on a
 training-range aircraft and one on an extreme test aircraft, not hand-picked.
 
-Writes <out>.gif (paths drawn over time, slowly rotating view, under 5 MB), <out>.png (last frame) and
-<out>.json (the paths, in meters from the start point, for other viewers).
+Writes <out>.gif (paths drawn over time, slowly rotating view, under 5 MB), <out>.png (last frame),
+<out>.json (the paths, in meters from the start point) and <out>.html (interactive 3D viewer: the paths
+inside scripts/trajectory_viewer.html, a single page that only loads plotly from a CDN).
 
 Usage: python scripts/make_trajectory_3d.py --data-dir <data_dir> \
            --models runs/a0_calmT100_s0 runs/jepa_calmT100_s0 --labels "A0" "JEPA"
@@ -136,13 +137,16 @@ def main():
     draw(n_frames - 1)
     fig.savefig(out.with_suffix(".png"), dpi=150)
     r1 = lambda x: np.round(x, 1).tolist()
-    json.dump(dict(dt=DT, horizon_s=a.horizon_s, frame="east, north, altitude change [m] from the last measurement",
-                   panels=[dict(title=pn["title"], flight=pn["flight"], start_s=pn["start_s"], history=r1(pn["hist"]),
-                                truth=r1(pn["truth"]), error_end_m=pn["error_end_m"],
-                                models={lab: r1(p) for lab, p in zip(a.labels, pn["paths"])}) for pn in panels]),
-              open(out.with_suffix(".json"), "w"))
+    paths = json.dumps(dict(title=a.title, dt=DT, horizon_s=a.horizon_s,
+                            frame="east, north, altitude change [m] from the last measurement",
+                            panels=[dict(title=pn["title"], flight=pn["flight"], start_s=pn["start_s"], history=r1(pn["hist"]),
+                                         truth=r1(pn["truth"]), error_end_m=pn["error_end_m"],
+                                         models={lab: r1(p) for lab, p in zip(a.labels, pn["paths"])}) for pn in panels]))
+    out.with_suffix(".json").write_text(paths)
+    viewer = (Path(__file__).with_name("trajectory_viewer.html")).read_text(encoding="utf-8")
+    out.with_suffix(".html").write_text(viewer.replace("/*DATA*/null", paths), encoding="utf-8")
     size = out.with_suffix(".gif").stat().st_size / 1e6
-    print(f"written {out.with_suffix('.gif')} ({size:.1f} MB), .png and .json"
+    print(f"written {out.with_suffix('.gif')} ({size:.1f} MB), .png, .json and .html (interactive viewer)"
           + ("  WARNING: over 5 MB, lower --dpi or raise --steps-per-frame" if size > 5 else ""))
 
 

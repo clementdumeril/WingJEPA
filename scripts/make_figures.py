@@ -128,9 +128,12 @@ def altitude_error(runs, out):
 
 
 def paired_bars(values, xlabel, title, out, baselines=None):
-    """values: {group: [(label, [(mean, lo, hi) or None per condition])]} -> horizontal grouped bars."""
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 0.62 * len(PAIRS) + 1.6), sharey=True)
-    labels = [p[2] for p in PAIRS]
+    """values: {group: [(label, [(mean, lo, hi) or None per condition])]} -> horizontal grouped bars.
+    Models with no value in any group or condition are left out."""
+    keep = [i for i in range(len(PAIRS)) if any(v is not None for g in values for v in values[g][i][1])]
+    values = {g: [rows[i] for i in keep] for g, rows in values.items()}
+    labels = [lab for lab, _ in next(iter(values.values()))]
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 0.62 * len(labels) + 1.6), sharey=True)
     y = np.arange(len(labels))[::-1]
     h = 0.38
     for ax, (g, gtitle) in zip(axes, GROUPS.items()):
@@ -207,7 +210,7 @@ def probe(results, out):
                color=colors[i % len(colors)])
     ax.set_xticks(x, names)
     ax.set_ylabel("normalized error (0 = perfect, 1 = lost)")
-    ax.set_title("Can the present state be read back from the encoder latent? (small MLP probe, same size as the decoder)")
+    ax.set_title("Can the present state be read back from the encoder latent? (small MLP probe)")
     ax.grid(axis="y", alpha=0.3)
     ax.spines[["top", "right"]].set_visible(False)
     ax.legend(fontsize=8, ncol=2)

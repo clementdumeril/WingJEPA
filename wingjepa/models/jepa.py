@@ -181,8 +181,12 @@ class WorldModel(nn.Module):
 
     def target_latents(self, seq, H, ac=None, encoder=None):
         """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D).
-        encoder: another encoder for the targets (slow EMA copy), default the model's own."""
+        encoder: another encoder for the targets (slow EMA copy), default the model's own.
+        With the command history, the targets see it set to zero: the predictor receives the commands, so
+        targets that encode them could be predicted from the commands alone instead of the state."""
         win = seq[:, :, :self.n_past].unfold(1, H, 1)[:, 1:]         # (B, T, n_past, H)
+        if self.n_past > N_STATE:
+            win = torch.cat([win[:, :, :N_STATE], torch.zeros_like(win[:, :, N_STATE:])], 2)
         B, T = win.shape[:2]
         c = self.ctx(ac)
         c = None if c is None else c.repeat_interleave(T, 0)

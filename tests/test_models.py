@@ -103,6 +103,9 @@ def test_action_history_encoder_sees_only_the_commands_already_applied():
     assert torch.allclose(m.encode(wind[:, :H], ac), z)
     pred, _ = m.predict_states(seq, H, ac=ac)
     assert pred.shape == (2, 20, N_STATE) and m.target_latents(seq, H, ac).shape == (2, 20, 32)
+    cmds = seq.clone()
+    cmds[:, :, N_STATE:N_STATE + 4] += 1.0                             # the JEPA targets do not see the commands
+    assert torch.allclose(m.target_latents(cmds, H, ac), m.target_latents(seq, H, ac))
 
 
 def _prior_25e():

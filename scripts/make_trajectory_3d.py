@@ -47,7 +47,7 @@ def main():
     ap.add_argument("--steps-per-frame", type=int, default=5)
     ap.add_argument("--fps", type=int, default=12)
     ap.add_argument("--dpi", type=int, default=75)
-    ap.add_argument("--out", default="assets/trajectory_3d")
+    ap.add_argument("--out", default="docs/figures/trajectory_3d")
     a = ap.parse_args()
     assert len(a.models) == len(a.labels) <= len(COLORS), "one label per model, at most 5 models"
 

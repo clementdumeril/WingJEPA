@@ -1,14 +1,14 @@
 """README figures from the evaluation files collected in results/ (scripts/collect_results.py).
 
-  assets/useful_horizon.png       median useful horizon per model, long flights, training vs extreme
-                                  aircraft (bar = mean over seeds, whiskers = min/max over seeds)
-  assets/altitude_error.png       RMS altitude error vs prediction time, with the two trivial baselines
-  assets/calm_vs_turbulence.png   median useful horizon of the main models, turbulent vs calm air (PAIRS)
-  assets/position_error.png       RMS 3D position error at 5 s (the SkyJEPA metric), turbulent vs calm air
-  assets/probe.png                how well the present state can be read back from the encoder latent, A0 vs
-                                  JEPA (probe.json, scripts/diagnose.py)
+  docs/figures/useful_horizon.png       median useful horizon per model, long flights, training vs extreme
+                                         aircraft (bar = mean over seeds, whiskers = min/max over seeds)
+  docs/figures/altitude_error.png       RMS altitude error vs prediction time, with the two trivial baselines
+  docs/figures/calm_vs_turbulence.png   median useful horizon of the main models, turbulent vs calm air (PAIRS)
+  docs/figures/position_error.png       RMS 3D position error at 5 s (the SkyJEPA metric), turbulent vs calm air
+  docs/figures/probe.png                how well the present state can be read back from the encoder latent, A0 vs
+                                         JEPA (probe.json, scripts/diagnose.py)
 
-Usage: python scripts/make_figures.py [--results results] [--out assets]
+Usage: python scripts/make_figures.py [--results results] [--out docs/figures]
 """
 import argparse
 import json
@@ -223,7 +223,7 @@ def probe(results, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results")
-    ap.add_argument("--out", default="assets")
+    ap.add_argument("--out", default="docs/figures")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

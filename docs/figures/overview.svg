@@ -67,7 +67,7 @@
     <path d="M860,246 H910"/>
   </g>
   <g font-family="Georgia, 'Times New Roman', serif" font-style="italic" fill="#15202A" font-size="18">
-    <text x="501" y="218" text-anchor="middle">z<tspan font-size="12" dy="4">0</tspan></text>
+    <text x="501" y="218" text-anchor="middle">z<tspan font-size="13" dy="4" font-style="normal" font-family="Arial, Helvetica, sans-serif">0</tspan></text>
     <text x="436" y="94" text-anchor="middle">u<tspan font-size="12" dy="4">k</tspan></text>
     <text x="886" y="102" text-anchor="middle">x<tspan font-size="12" dy="4">k</tspan></text>
     <text x="886" y="236" text-anchor="middle">x<tspan font-size="12" dy="4">k</tspan></text>

@@ -30,6 +30,10 @@ python scripts/train_a.py --data-dir "$DATA" --out $S/jepa --mode jepa --action-
 python scripts/train_a.py --data-dir "$DATA" --out $S/c_jepa --mode c_jepa --prior $PRIOR --trunk $S/jepa $FAST
 grep -q '"action_history": 1' $S/c_jepa/config.json && echo "c_jepa took the command-history encoder from its trunk"
 python scripts/train_a.py --data-dir "$DATA" --out $S/a0 --mode a0 --action-history 1 $FAST
+python scripts/train_a.py --data-dir "$DATA" --out $S/jepa_tw --mode jepa --target-window 10 $FAST
+python scripts/train_a.py --data-dir "$DATA" --out $S/jepa_ae --mode jepa --action-encoder 1 --H 11 --channels 8,8,16 --dilations 1,2,4 --z-dim 24 --aircraft-input 0 $FAST
+python scripts/train_a.py --data-dir "$DATA" --out $S/c_jepa_ae --mode c_jepa --prior $PRIOR --trunk $S/jepa_ae $FAST
+grep -q '"action_encoder": 1' $S/c_jepa_ae/config.json && echo "c_jepa took the action encoder from its trunk"
 echo "=== 3. short evaluation and probe"
 python scripts/evaluate.py --model-dir $S/c_jepa --data-dir "$DATA" --set test_long --horizon-s 5 --stride-s 30
 python scripts/diagnose.py --data-dir "$DATA" --models $S/jepa

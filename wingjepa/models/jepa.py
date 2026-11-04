@@ -71,9 +71,25 @@ class TCNEncoder(nn.Module):
 
 
 class GRUPredictor(nn.Module):
-    def __init__(self, n_in=N_CTRL + N_WIND, z_dim=32):
+    """act_channels: action encoder of SkyJEPA (Enc_phi, eq. 7-8 of the paper), a causal TCN over the
+    commands; at each step the GRU receives the encoding of the command window ending at that step
+    instead of the raw command. Part of the predictor, so that it is trained, frozen and reused with it."""
+
+    def __init__(self, n_in=N_CTRL + N_WIND, z_dim=32, act_channels=None, k=3, dilations=(1, 2, 4)):
         super().__init__()
+        self.act = causal_tcn(N_CTRL, act_channels, k, dilations) if act_channels else None
+        if act_channels:
+            n_in += act_channels[-1] - N_CTRL
         self.cell = nn.GRUCell(n_in, z_dim)
+
+    def inputs(self, seq, H, U):
+        """GRU inputs of steps t..t+T-1. U: raw future inputs (B, T, 7); with the action encoder, the
+        command part becomes Enc_phi of the commands applied up to each step (B, T, C + N_WIND)."""
+        if self.act is None:
+            return U
+        cmd = seq[:, :-1, N_STATE:N_STATE + N_CTRL].transpose(1, 2)    # command of step k applied from k to k+1
+        za = self.act(cmd)[:, :, H - 1:].transpose(1, 2)               # windows ending at t..t+T-1
+        return torch.cat([za, U[:, :, N_CTRL:]], -1)
 
     def forward(self, z, u):                        # z : (B, D), u : (B, 7)
         return self.cell(u, z)
@@ -117,16 +133,19 @@ NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 class WorldModel(nn.Module):
     """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required).
-    action_history: the encoder also reads the past commands (second TCN)."""
+    action_history: the encoder also reads the past commands (second TCN).
+    target_window: length of the windows encoded as JEPA targets (default 0: H, the context length).
+    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi)."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
                  n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free",
-                 param_bound=0.0, action_history=False):
+                 param_bound=0.0, action_history=False, target_window=0, act_channels=None):
         super().__init__()
+        self.target_window = target_window
         n_act = N_CTRL if action_history else 0
         self.n_past = N_STATE + n_act                                  # channels of seq the encoder reads
         self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act)
-        self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim)
+        self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim, act_channels, k, dilations)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
         if head == "mlp":
@@ -162,7 +181,7 @@ class WorldModel(nn.Module):
         """seq : (B, H+T, 16) -> z_0 (B, D), predicted latents z_1..z_T (B, T, D), future inputs (B, T, 7)."""
         U = self.future_inputs(seq, H, hold_wind)
         z0 = self.encode(seq[:, :H], ac)
-        return z0, self.predictor.rollout(z0, U), U
+        return z0, self.predictor.rollout(z0, self.predictor.inputs(seq, H, U)), U
 
     def predict_latents(self, seq, H, hold_wind=True, ac=None):
         """seq : (B, H+T, 16) -> predicted latents (B, T, D) for steps t+1..t+T."""
@@ -183,14 +202,17 @@ class WorldModel(nn.Module):
         """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D).
         encoder: another encoder for the targets (slow EMA copy), default the model's own.
         With the command history, the targets see it set to zero: the predictor receives the commands, so
-        targets that encode them could be predicted from the commands alone instead of the state."""
-        win = seq[:, :, :self.n_past].unfold(1, H, 1)[:, 1:]         # (B, T, n_past, H)
+        targets that encode them could be predicted from the commands alone instead of the state.
+        With target_window Ht < H, each target window holds only the last Ht steps: a window of H steps shares
+        H - k of them with the context, so a latent of the slow content of the past is already a good target."""
+        Ht = min(self.target_window or H, H)
+        win = seq[:, H - Ht + 1:, :self.n_past].unfold(1, Ht, 1)     # (B, T, n_past, Ht), ending at t+1..t+T
         if self.n_past > N_STATE:
             win = torch.cat([win[:, :, :N_STATE], torch.zeros_like(win[:, :, N_STATE:])], 2)
         B, T = win.shape[:2]
         c = self.ctx(ac)
         c = None if c is None else c.repeat_interleave(T, 0)
-        z = (encoder or self.encoder)(win.reshape(B * T, win.shape[2], H).transpose(1, 2), c)
+        z = (encoder or self.encoder)(win.reshape(B * T, win.shape[2], Ht).transpose(1, 2), c)
         return z.reshape(B, T, -1)
 
     def n_params(self):
@@ -209,4 +231,5 @@ def model_from_config(cfg, prior=None):
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
                       correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
-                      action_history=bool(cfg.get("action_history", 0)))
+                      action_history=bool(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
+                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None)

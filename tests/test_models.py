@@ -108,6 +108,50 @@ def test_action_history_encoder_sees_only_the_commands_already_applied():
     assert torch.allclose(m.target_latents(cmds, H, ac), m.target_latents(seq, H, ac))
 
 
+def test_target_window():
+    """With target_window 10, the target of step t+k depends only on the last 10 steps up to t+k; by default
+    (target_window 0) the targets are the encoder on the full windows of H steps, as before."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    cfg = dict(z_dim=32, norm=norm, H=40, channels="16,16,32,32,32", dilations="1,2,4,8,16", seed=0)
+    H, T, seq = 40, 20, torch.randn(2, 60, 16)
+    full, short = model_from_config(cfg), model_from_config(dict(cfg, target_window=10))
+    short.load_state_dict(full.state_dict())
+    win = seq[:, :, :N_STATE].unfold(1, H, 1)[:, 1:]                   # the windows used before the option
+    want = full.encoder(win.reshape(2 * T, N_STATE, H).transpose(1, 2)).reshape(2, T, -1)
+    torch.testing.assert_close(full.target_latents(seq, H), want)
+    zt = short.target_latents(seq, H)
+    assert zt.shape == (2, T, 32)
+    old = seq.clone()
+    old[:, H + 4 - 10] += 1.0                                          # just before the window of the target t+5
+    assert torch.allclose(short.target_latents(old, H)[:, 4], zt[:, 4])
+    assert not torch.allclose(full.target_latents(old, H)[:, 4], full.target_latents(seq, H)[:, 4])
+
+
+def test_action_encoder_feeds_the_predictor():
+    """With the action encoder (SkyJEPA), the latent of step t+k depends on the commands applied up to step
+    t+k-1 but not on later ones; the context latent and the JEPA targets do not read the commands."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    m = model_from_config(dict(z_dim=24, norm=norm, H=11, channels="8,8,16", dilations="1,2,4",
+                               action_encoder=1, act_channels="4,4,8", seed=0))
+    H, T, seq = 11, 20, torch.randn(2, 31, 16)
+    zp = m.predict_latents(seq, H)
+    assert zp.shape == (2, T, 24)
+    late = seq.clone()
+    late[:, H - 1 + 5, N_STATE:N_STATE + 4] += 1.0                     # command applied from t+5 to t+6
+    zl = m.predict_latents(late, H)
+    torch.testing.assert_close(zl[:, :5], zp[:, :5])
+    assert not torch.allclose(zl[:, 5], zp[:, 5])
+    past = seq.clone()
+    past[:, H - 5, N_STATE:N_STATE + 4] += 1.0                         # command before t: seen through Enc_phi
+    assert not torch.allclose(m.predict_latents(past, H)[:, 0], zp[:, 0])
+    cmds = seq.clone()
+    cmds[:, :, N_STATE:N_STATE + 4] += 1.0
+    torch.testing.assert_close(m.encode(cmds[:, :H]), m.encode(seq[:, :H]))
+    torch.testing.assert_close(m.target_latents(cmds, H), m.target_latents(seq, H))
+
+
 def _prior_25e():
     p = load_config(ROOT / "configs/ultrastick25e_validation.yaml")
     return dict(coef=generic_25e(p, [0.0] * 6), rho=float(isa_density(100.0)), S=p["S"], b=p["b"], c=p["c"], g=p["g"])

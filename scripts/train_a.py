@@ -15,6 +15,11 @@
                    coefficients added to the prior at every step.
 --action-history 1: the encoder also reads the commands of the past 2 s (second TCN, as in SkyJEPA); a
                    c_jepa run takes this from its trunk.
+--target-window Ht (jepa, joint): the JEPA targets encode windows of the last Ht steps instead of H, so that
+                   they share fewer steps with the context window.
+--action-encoder 1: as in SkyJEPA (eq. 7-8), the predictor receives at each step the encoding of the
+                   commands applied up to that step (TCN of --act-channels) instead of the raw command; the
+                   state latent and the JEPA targets stay states only. A c_jepa run takes this from its trunk.
 Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
 --curriculum-frac of the training); validation always uses --T-max.
 The best weights on the validation flights are kept.
@@ -169,6 +174,11 @@ def main():
     ap.add_argument("--aircraft-input", type=int, default=1, help="mass and inertias as input (1) or not (0)")
     ap.add_argument("--action-history", type=int, default=0,
                     help="1: the encoder also reads the past commands (second TCN, as in SkyJEPA)")
+    ap.add_argument("--target-window", type=int, default=0,
+                    help="steps of the windows encoded as JEPA targets (default 0: --H)")
+    ap.add_argument("--action-encoder", type=int, default=0,
+                    help="1: the predictor reads the commands through an action encoder (SkyJEPA's Enc_phi)")
+    ap.add_argument("--act-channels", default="4,4,8", help="channels of the action encoder layers")
     ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
     ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
@@ -229,6 +239,8 @@ def main():
         for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # trunk architecture
             setattr(a, k, trunk_cfg.get(k, getattr(a, k)))
         a.action_history = trunk_cfg.get("action_history", 0)
+        a.action_encoder = trunk_cfg.get("action_encoder", 0)
+        a.act_channels = trunk_cfg.get("act_channels", a.act_channels)
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
@@ -301,7 +313,7 @@ def main():
     # what must match for a restart: all the options but the machine-side ones; options added after
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
-    later = dict(param_bound=0.0, action_history=0)
+    later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8")
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)

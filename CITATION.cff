@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "WingJEPA: where physics should enter a learned world model of a fixed-wing UAV"
+authors:
+  - family-names: Dumeril
+    given-names: Clément
+    affiliation: "University of California, Berkeley"
+license: MIT
+repository-code: "https://github.com/clementdumeril/WingJEPA"
+url: "https://clement.dumeril.net"
+keywords:
+  - world model
+  - JEPA
+  - physics-informed machine learning
+  - fixed-wing UAV
+  - flight dynamics

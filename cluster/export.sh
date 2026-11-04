@@ -4,6 +4,6 @@
 # Usage (repository root, environment activated): bash cluster/export.sh
 set -euo pipefail
 python scripts/collect_results.py --out export/results > /dev/null
-python scripts/make_figures.py --results export/results --out export/assets
-tar czf export.tgz -C export results assets
+python scripts/make_figures.py --results export/results --out export/docs/figures
+tar czf export.tgz -C export results docs
 echo "export.tgz: $(tar tzf export.tgz | grep -c eval_position) position files, $(ls export/results | wc -l) entries"

@@ -50,8 +50,8 @@ the first experiments, kept for the record.
 | C-direct: physics head, free correction | 3.57 s | 4.08 s | 1.92 s | 13.2 m |
 | C-direct: physics head, constrained | 2.11 s | 2.05 s | 1.20 s | |
 
-Prior variants of the physics head (turbulence, one seed each) are in `../assets/useful_horizon.png`; the altitude
-error over time is in `../assets/altitude_error.png`. No model beats "keep the altitude constant" at 60 s.
+Prior variants of the physics head (turbulence, one seed each) are in `../docs/figures/useful_horizon.png`; the altitude
+error over time is in `../docs/figures/altitude_error.png`. No model beats "keep the altitude constant" at 60 s.
 
 ## Findings
 

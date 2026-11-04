@@ -51,7 +51,7 @@ def main():
     ap.add_argument("--index", type=int, default=None, help="start index instead of a random draw")
     ap.add_argument("--steps-per-frame", type=int, default=4)
     ap.add_argument("--fps", type=int, default=10)
-    ap.add_argument("--out", default="assets/rollout_extreme_aircraft")
+    ap.add_argument("--out", default="docs/figures/rollout_extreme_aircraft")
     a = ap.parse_args()
     assert len(a.models) == len(a.labels), "one label per model"
 

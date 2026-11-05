@@ -40,6 +40,10 @@ of the learned aerodynamics is qS Va (- e_hat^T R e_hat + e_hat^T G u) <= qS Va 
 the rigid-body (gyroscopic) terms stay the exact Newton-Euler terms. Added to the prior like the free
 correction (with the null prior, all the aerodynamics is learned inside this structure). At the start,
 J = 0, G = 0 and R = 0.03^2 I (a small damping, so that L has a gradient).
+Every entry of J and G is bounded to +-PORTH_BOUND and every entry of L to +-sqrt(PORTH_BOUND / 6) (B tanh(x / B),
+the identity for small values), so |R_ij| <= PORTH_BOUND: about twice the largest coefficient of a real airframe
+(lift slope, pitch damping). Unbounded, the quadratic R = L L^T grows fast, the dynamics become too stiff for
+the explicit RK4 step, the state hits its safety bounds where the gradient is zero, and training stays stuck.
 """
 import math
 
@@ -72,6 +76,9 @@ def regressors(alpha, beta, de, da, dr, phat, qhat, rhat, thr, Va):
         "Cm": [one, alpha, alpha * alpha, de, qhat],
         "T": [one, thr, thr * thr, thr * Va, Va, Va * Va],
     }
+
+
+PORTH_BOUND = 10.0   # bound of each entry of J, G and R (porth correction)
 
 
 class PhysicsHead(nn.Module):
@@ -141,13 +148,15 @@ class PhysicsHead(nn.Module):
     def porth_matrices(self, M):
         """Network output (B, 60) -> J (B, 6, 6) skew, R (B, 6, 6) positive semi-definite, G (B, 6, 4)."""
         B, n_j, n_l = M.shape[0], self.iu.shape[1], self.il.shape[1]
+        bj, bl = PORTH_BOUND, math.sqrt(PORTH_BOUND / 6)
         A = M.new_zeros(B, 6, 6)
-        A[:, self.iu[0], self.iu[1]] = M[:, :n_j]
+        A[:, self.iu[0], self.iu[1]] = bj * torch.tanh(M[:, :n_j] / bj)
         lv = M[:, n_j:n_j + n_l].clone()
         lv[:, self.il_diag] = nn.functional.softplus(lv[:, self.il_diag] - 3.49)   # 0.03 at the start
         L = M.new_zeros(B, 6, 6)
-        L[:, self.il[0], self.il[1]] = lv
-        return A - A.transpose(1, 2), L @ L.transpose(1, 2), M[:, n_j + n_l:].reshape(B, 6, N_CTRL)
+        L[:, self.il[0], self.il[1]] = bl * torch.tanh(lv / bl)
+        G = bj * torch.tanh(M[:, n_j + n_l:] / bj)
+        return A - A.transpose(1, 2), L @ L.transpose(1, 2), G.reshape(B, 6, N_CTRL)
 
     def porth_body(self, M, Va, alpha, beta, p, q, r, ctrl):
         """Port-Hamiltonian body-axis coefficients (B, 6): (J - R) e_hat + G u."""

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from fit_prior import generic_25e  # noqa: E402
 from wingjepa.data.windows import N_STATE, Normalizer  # noqa: E402
 from wingjepa.models.jepa import TCNEncoder, model_from_config  # noqa: E402
-from wingjepa.models.physics import COEFS, TERMS, PhysicsHead  # noqa: E402
+from wingjepa.models.physics import COEFS, PORTH_BOUND, TERMS, PhysicsHead  # noqa: E402
 from wingjepa.sim.ultrastick import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W,  # noqa: E402
                                      UltraStick, isa_density, load_config)
 
@@ -216,6 +216,12 @@ def test_port_hamiltonian_head_cannot_create_energy():
     u = torch.randn(B, 4, dtype=torch.float64)
     power = (head.porth_body(M, Va, alpha, beta, p, q, r, u) * e).sum(-1)
     assert (power <= (e[:, :, None] * G * u[:, None, :]).sum((1, 2)) + 1e-10).all()
+    # a huge output (as when the training drifts) still gives bounded matrices, so the step cannot get stiff
+    Jh, Rh, Gh = head.porth_matrices(1e4 * torch.randn(B, 60, dtype=torch.float64))
+    bound = PORTH_BOUND * (1 + 1e-9)
+    assert Jh.abs().max() <= bound and Rh.abs().max() <= bound and Gh.abs().max() <= bound
+    torch.testing.assert_close(Jh, -Jh.transpose(1, 2))
+    assert torch.linalg.eigvalsh(Rh).min() > -1e-8
 
     Bt, T = 3, 8
     s0 = torch.tensor([[18.0, 0.05, 0.01, 0.05, -0.02, 0.03, 0.2, 0.06, 0.0]]).repeat(Bt, 1)

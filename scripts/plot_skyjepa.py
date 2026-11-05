@@ -2,9 +2,11 @@
 from the <run>/eval_skyjepa_<set>.json files of scripts/eval_skyjepa.py (mean over seeds, whiskers = min/max).
 
   <out>/open_loop.png        position, velocity and attitude RMSE vs prediction time (their Fig. 8)
-  <out>/rollout_error.png    compounding ratio and error growth vs prediction time (their Fig. 6)
+  <out>/rollout_error.png    compounding ratio vs prediction time (their Fig. 6), and its two terms: open-loop
+                             and one-step (teacher-forced) state RMSE, log scale
   <out>/noise.png            median state RMSE over the first second vs observation noise (their Fig. 9)
-  <out>/straightening.png    temporal straightening of the predicted latent trajectories (their Fig. 7c)
+  <out>/straightening.png    temporal straightening of the predicted latent trajectories (their Fig. 7c);
+                             c_jepa runs left out, their latent is the one of their frozen trunk
   stdout                     Table III: position RMSE [m] and attitude error [deg] at 1 s and --at-s seconds
 
 Usage: python scripts/plot_skyjepa.py --runs runs --out docs/figures/skyjepa
@@ -29,6 +31,7 @@ LABELS = {
     "c_jepa_calm_sky_nul": ("JEPA frozen + physics probe", "Ours + PI Prober"),
     "jepa_ft_calm_sky_ft": ("JEPA + fine-tuning", "(not in the paper)"),
     "c_direct_calm_sky_nul": ("Physics head trained end to end", "(not in the paper)"),
+    "c_direct_calm_sky_porth": ("Port-Hamiltonian head trained end to end", "(not in the paper)"),
 }
 GROUPS = {"avions_entrainement": "training-range aircraft", "avions_de_test": "extreme aircraft"}
 
@@ -42,7 +45,7 @@ def load(runs, set_name):
             continue
         for g, r in json.load(open(f)).items():
             for k in ("position_rmse_m", "velocity_rmse_ms", "attitude_rmse_deg", "compounding_ratio",
-                      "error_growth", "state_rmse_norm"):
+                      "error_growth", "state_rmse_norm", "state_rmse_norm_teacher_forced"):
                 out[base][g][k].append(np.array(r[k], float))
             out[base][g]["straightening"].append(r["straightening"]["mean"])
             sig = sorted(r["noise_robustness"], key=float)
@@ -90,17 +93,22 @@ def main():
         fig.savefig(out / f"open_loop_{g}.png", dpi=150)
         plt.close(fig)
 
-        fig, axs = plt.subplots(1, 2, figsize=(9, 3.6))
-        for b in order:
+        # right panel: the two terms of the ratio, so that a low CR from a poor one-step error is visible
+        fig, axs = plt.subplots(1, 2, figsize=(10, 3.8))
+        for i, b in enumerate(order):
             if g not in res[b]:
                 continue
             r = res[b][g]
             t = (np.arange(len(r["compounding_ratio"][0])) + 1) * r["dt"]
             curve(axs[0], t, r["compounding_ratio"], LABELS[b][0])
-            curve(axs[1], t[1:], [e[1:] for e in r["error_growth"]], LABELS[b][0])
+            c = f"C{i}"
+            axs[1].plot(t, np.mean(r["state_rmse_norm"], 0), color=c, lw=1.6, label=LABELS[b][0])
+            axs[1].plot(t, np.mean(r["state_rmse_norm_teacher_forced"], 0), color=c, lw=1.2, ls="--")
         axs[0].axhline(1, color="k", lw=0.8, ls="--")
         axs[0].set_ylabel("compounding ratio CR$_k$")
-        axs[1].set_ylabel("error growth ER$_k$ (normalized)")
+        axs[1].set_yscale("log")
+        axs[1].set_ylabel("normalized state RMSE (log)")
+        axs[1].set_title("solid: open-loop rollout   dashed: one step from the true past", fontsize=8)
         for ax in axs:
             ax.set_xlabel("prediction time [s]")
             ax.grid(alpha=0.3)
@@ -125,7 +133,7 @@ def main():
         plt.close(fig)
 
         fig, ax = plt.subplots(figsize=(6, 3.4))
-        names = [b for b in order if g in res[b]]
+        names = [b for b in order if g in res[b] and not b.startswith("c_jepa")]   # c_jepa: latent of its trunk
         vals = [np.array(res[b][g]["straightening"]) for b in names]
         ax.barh(range(len(names)), [v.mean() for v in vals],
                 xerr=[[v.mean() - v.min() for v in vals], [v.max() - v.mean() for v in vals]], capsize=2)

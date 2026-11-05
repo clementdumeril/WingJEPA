@@ -102,7 +102,13 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
     args = (c["alpha"], c["beta"], c["de_cmd"], c["da_cmd"], c["dr_cmd"], c["p"], c["q"], c["r"], c["dt_cmd"], Va)
     prior = head.prior_body(*args)
     miss = (true - prior).numpy()
-    dC = (head.prior_body(*args, dcoef=corr) - prior if head.mode == "param" else corr).numpy()
+    if head.mode == "param":
+        dC = (head.prior_body(*args, dcoef=corr) - prior).numpy()
+    elif head.mode == "porth":
+        ctrl = torch.stack([c["de_cmd"], c["da_cmd"], c["dr_cmd"], c["dt_cmd"]], -1)
+        dC = head.porth_body(corr, Va, c["alpha"], c["beta"], c["p"], c["q"], c["r"], ctrl).numpy()
+    else:
+        dC = corr.numpy()
     out = {}
     for i, k in enumerate(BODY):
         out[k] = dict(r2=float(1 - np.mean((dC[:, i] - miss[:, i]) ** 2) / max(miss[:, i].var(), 1e-12)),

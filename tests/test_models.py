@@ -194,6 +194,40 @@ def test_constrained_head_starts_as_the_prior():
     assert out["free"][1].shape == (B, T, 6) and out["param"][1].shape == (B, 1, 38)
 
 
+def test_port_hamiltonian_head_cannot_create_energy():
+    """porth: for any network output, J is skew and R positive semi-definite, so the power of the learned
+    aerodynamics without commands, qS Va e_hat^T (J - R) e_hat, is <= 0; with commands it is at most the input
+    power e_hat^T G u. Untrained, the head runs, returns (B, T, 60) raw outputs and stays close to the prior."""
+    torch.manual_seed(0)
+    head = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction="porth").double()
+    B = 64
+    M = 3 * torch.randn(B, 60, dtype=torch.float64)
+    J, R, G = head.porth_matrices(M)
+    torch.testing.assert_close(J, -J.transpose(1, 2))
+    assert torch.linalg.eigvalsh(R).min() > -1e-10
+    Va, alpha, beta = 15 + 10 * torch.rand(B, dtype=torch.float64), 0.2 * torch.randn(B, dtype=torch.float64), \
+        0.1 * torch.randn(B, dtype=torch.float64)
+    p, q, r = (torch.randn(B, dtype=torch.float64) for _ in range(3))
+    cb = torch.cos(beta)
+    e = torch.stack([torch.cos(alpha) * cb, torch.sin(beta), torch.sin(alpha) * cb,
+                     p * head.b / Va, q * head.c / Va, r * head.b / Va], -1)
+    zero = torch.zeros(B, 4, dtype=torch.float64)
+    assert ((head.porth_body(M, Va, alpha, beta, p, q, r, zero) * e).sum(-1) <= 1e-10).all()
+    u = torch.randn(B, 4, dtype=torch.float64)
+    power = (head.porth_body(M, Va, alpha, beta, p, q, r, u) * e).sum(-1)
+    assert (power <= (e[:, :, None] * G * u[:, None, :]).sum((1, 2)) + 1e-10).all()
+
+    Bt, T = 3, 8
+    s0 = torch.tensor([[18.0, 0.05, 0.01, 0.05, -0.02, 0.03, 0.2, 0.06, 0.0]]).repeat(Bt, 1)
+    U = torch.cat([0.02 * torch.randn(Bt, T, 3), torch.full((Bt, T, 1), 0.5), torch.zeros(Bt, T, 3)], -1)
+    ac = torch.tensor([[6.8, 0.67, 0.89, 1.58, -0.76]]).repeat(Bt, 1)
+    zs = torch.randn(Bt, T, 32)
+    pred, raw = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction="porth")(zs, s0, U, ac)
+    ref, _ = PhysicsHead(_prior_25e(), np.zeros(16), np.ones(16), correction="free")(zs, s0, U, ac)
+    assert raw.shape == (Bt, T, 60) and torch.isfinite(pred).all()
+    assert (pred - ref).abs().max() < 0.05                     # only the small initial damping differs
+
+
 def test_constrained_head_bound():
     """With --param-bound B, even a huge network output changes no coefficient by more than B * scale, and
     a small one is left as without bound."""

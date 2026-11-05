@@ -27,6 +27,19 @@ structure (with the null prior the coefficients cannot move).
 param_bound B > 0: delta = B * tanh(out_scale * raw / B), each coefficient stays within +-B * scale of the
 prior (same as unbounded for small changes). Without it, a poor prior can push coefficients through a sign
 change, the dynamics diverge and the training stops learning.
+
+correction="porth" (port-Hamiltonian head, energy structure): the learned forces and moments are not free
+any more. With the energy H = 1/2 m |v|^2 + 1/2 w^T I w + m g h, the velocities e = (u, v, w, p, q, r) are
+dH/d(momenta). The network outputs, at every step from z_k, the state and the inputs, three matrices acting
+on the dimensionless e_hat = (u, v, w, p b, q c, r b) / Va:
+  C = (J - R) e_hat + G u,   J = -J^T (6 x 6),   R = L L^T >= 0 (6 x 6),   G (6 x 4),   u = the 4 commands,
+and the body forces and moments are qS * C (times b, c, b for the moments), as for the free correction.
+J exchanges energy without creating it (lift, side force, cross couplings: e^T J e = 0), R can only remove
+it (drag, damping: e^T R e >= 0) and only the commands bring it in (thrust, control surfaces): the power
+of the learned aerodynamics is qS Va (- e_hat^T R e_hat + e_hat^T G u) <= qS Va e_hat^T G u. Gravity and
+the rigid-body (gyroscopic) terms stay the exact Newton-Euler terms. Added to the prior like the free
+correction (with the null prior, all the aerodynamics is learned inside this structure). At the start,
+J = 0, G = 0 and R = 0.03^2 I (a small damping, so that L has a gradient).
 """
 import math
 
@@ -69,7 +82,7 @@ class PhysicsHead(nn.Module):
     def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05,
                  correction="free", param_bound=0.0):
         super().__init__()
-        assert correction in ("free", "param"), correction
+        assert correction in ("free", "param", "porth"), correction
         self.mode, self.param_bound = correction, param_bound
         for k in COEFS:
             self.register_buffer(f"c_{k}", torch.tensor(prior["coef"][k], dtype=torch.float32))
@@ -88,6 +101,12 @@ class PhysicsHead(nn.Module):
         self._step = self.step                                   # replaced by a compiled version (compile_step())
         if correction == "param":
             n_in, n_out = z_dim, len(self.coef_scale)
+        elif correction == "porth":
+            iu, il = torch.triu_indices(6, 6, 1), torch.tril_indices(6, 6, 0)
+            self.register_buffer("iu", iu, persistent=False)
+            self.register_buffer("il", il, persistent=False)
+            self.register_buffer("il_diag", (il[0] == il[1]).nonzero()[:, 0], persistent=False)
+            n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, iu.shape[1] + il.shape[1] + 6 * N_CTRL   # 15+21+24
         else:
             n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, 6
         self.net = nn.Sequential(nn.Linear(n_in, hidden), nn.GELU(),
@@ -119,6 +138,25 @@ class PhysicsHead(nn.Module):
         Cn = sa * C["Cl"] + ca * C["Cn"]
         return torch.stack([CX, C["CY"], CZ, Cl, C["Cm"], Cn], -1)
 
+    def porth_matrices(self, M):
+        """Network output (B, 60) -> J (B, 6, 6) skew, R (B, 6, 6) positive semi-definite, G (B, 6, 4)."""
+        B, n_j, n_l = M.shape[0], self.iu.shape[1], self.il.shape[1]
+        A = M.new_zeros(B, 6, 6)
+        A[:, self.iu[0], self.iu[1]] = M[:, :n_j]
+        lv = M[:, n_j:n_j + n_l].clone()
+        lv[:, self.il_diag] = nn.functional.softplus(lv[:, self.il_diag] - 3.49)   # 0.03 at the start
+        L = M.new_zeros(B, 6, 6)
+        L[:, self.il[0], self.il[1]] = lv
+        return A - A.transpose(1, 2), L @ L.transpose(1, 2), M[:, n_j + n_l:].reshape(B, 6, N_CTRL)
+
+    def porth_body(self, M, Va, alpha, beta, p, q, r, ctrl):
+        """Port-Hamiltonian body-axis coefficients (B, 6): (J - R) e_hat + G u."""
+        J, R, G = self.porth_matrices(M)
+        cb = torch.cos(beta)
+        e = torch.stack([torch.cos(alpha) * cb, torch.sin(beta), torch.sin(alpha) * cb,
+                         p * self.b / Va, q * self.c / Va, r * self.b / Va], -1)
+        return ((J - R) @ e[..., None])[..., 0] + (G @ ctrl[..., None])[..., 0]
+
     # ---------- state
     @staticmethod
     def air_data(x):
@@ -149,7 +187,12 @@ class PhysicsHead(nn.Module):
         u, v, w, p, q, r, phi, th = x.unbind(-1)
         Va, alpha, beta = self.air_data(x)
         args = (alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va)
-        C = self.prior_body(*args, dcoef=dC) if self.mode == "param" else self.prior_body(*args) + dC
+        if self.mode == "param":
+            C = self.prior_body(*args, dcoef=dC)
+        elif self.mode == "porth":
+            C = self.prior_body(*args) + self.porth_body(dC, Va, alpha, beta, p, q, r, ctrl)
+        else:
+            C = self.prior_body(*args) + dC
         qS = 0.5 * self.rho * Va * Va * self.S
         m, Ixx, Iyy, Izz, Ixz = ac.unbind(-1)
         g = self.g
@@ -200,7 +243,7 @@ class PhysicsHead(nn.Module):
         """zs (B, T, D): latents z_0..z_{T-1} (start of each step); s0 (B, 9): last observed state,
         normalized; U (B, T, 7): normalized future inputs; ac (B, 5).
         -> normalized predicted states (B, T, 9), raw outputs of the correction: (B, T, 6) ("free"),
-        or (B, 1, 38) ("param", one set of coefficients for the whole prediction)."""
+        (B, T, 60) ("porth": J, L, G), or (B, 1, 38) ("param", one set of coefficients for the whole prediction)."""
         mean_s, std_s = self.mean[:N_STATE], self.std[:N_STATE]
         mean_u, std_u = self.mean[N_STATE:], self.std[N_STATE:]
         Uph = U * std_u + mean_u
@@ -210,7 +253,7 @@ class PhysicsHead(nn.Module):
             dC, raw = self.correction(zs[:, 0])
             raws.append(raw)
         for k in range(U.shape[1]):
-            if self.mode == "free":
+            if self.mode != "param":
                 dC, raw = self.correction(zs[:, k], s_n, U[:, k])
                 raws.append(raw)
             # contiguous copy: a strided view of Uph changes stride with the horizon T, and every new

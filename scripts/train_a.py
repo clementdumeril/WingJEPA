@@ -13,6 +13,9 @@
   --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
                    are changed once per flight from z_0 (models/physics.py). Default free: 6 body-axis
                    coefficients added to the prior at every step.
+--correction porth (c_direct, c_jepa): port-Hamiltonian head, the learned forces and moments are
+                   (J - R) e + G u with J skew, R >= 0 and e the velocities: they cannot create energy, only the
+                   commands bring it in (models/physics.py).
 --action-history 1: the encoder also reads the commands of the past 2 s (second TCN, as in SkyJEPA); a
                    c_jepa run takes this from its trunk.
 --target-window Ht (jepa, joint): the JEPA targets encode windows of the last Ht steps instead of H, so that
@@ -187,8 +190,9 @@ def main():
     ap.add_argument("--trunk", default=None, help="jepa run whose frozen trunk is reused (c_jepa mode)")
     ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
-    ap.add_argument("--correction", choices=["free", "param"], default="free",
-                    help="physics head: free forces at every step, or prior coefficients changed once per flight")
+    ap.add_argument("--correction", choices=["free", "param", "porth"], default="free",
+                    help="physics head: free forces at every step, prior coefficients changed once per flight, "
+                         "or forces with a port-Hamiltonian (energy) structure at every step")
     ap.add_argument("--param-bound", type=float, default=0.0,
                     help="constrained head: largest change of a coefficient, in units of its scale (0 = no bound)")
     ap.add_argument("--max-skip-streak", type=int, default=500,

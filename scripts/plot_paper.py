@@ -19,6 +19,7 @@ from plot_skyjepa import LABELS, load  # noqa: E402
 SHORT = {   # legend of the paper, same order as LABELS
     "a0_calm_sky_pred": "Predictive",
     "a0_calm_sky": "A0 + MLP",
+    "a0_calm_sky_physreg": "A0 + physics in the loss",
     "c_jepa_calm_sky_a0": "A0 frozen + physics probe",
     "jepa_calm_sky": "JEPA frozen + MLP probe",
     "c_jepa_calm_sky_nul": "JEPA frozen + physics probe",

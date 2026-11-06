@@ -26,6 +26,7 @@ import numpy as np  # noqa: E402
 LABELS = {
     "a0_calm_sky_pred": ("Predictive: one-step state loss", "Predictive"),
     "a0_calm_sky": ("A0: state loss, 1 s rollouts", "Recon + Prober (closest)"),
+    "a0_calm_sky_physreg": ("A0 + physics in the loss", "Pred + Phys Reg (closest)"),
     "c_jepa_calm_sky_a0": ("A0 trunk frozen + physics probe", "Recon + PI Prober (closest)"),
     "jepa_calm_sky": ("JEPA frozen + MLP probe", "Ours + Prober"),
     "c_jepa_calm_sky_nul": ("JEPA frozen + physics probe", "Ours + PI Prober"),

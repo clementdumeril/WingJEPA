@@ -8,6 +8,9 @@
   --mode joint   : JEPA + SIGReg + state error together, decoder learned at the same time (not frozen).
   --mode c_direct: like a0, with the physics head (--prior) instead of the MLP decoder; loss = state
                    error + --lambda-res * size of the learned correction (APHYNITY idea).
+  --lambda-phys L (a0): physics in the loss instead of the architecture (Pred + Phys Reg in SkyJEPA): the MLP
+                   predictions are also penalized, with weight L, when they violate the kinematics known for
+                   any aircraft (attitude kinematics from p, q, r; vertical speed from Va, alpha, beta, attitude).
   --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
                    learned (like the SkyJEPA physics probe), same loss as c_direct.
   --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
@@ -54,7 +57,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wingjepa.data.windows import (FEATURES, N_STATE, Normalizer, WindowSampler, aircraft_params,  # noqa: E402
+from wingjepa.data.windows import (FEATURES, N_CTRL, N_STATE, Normalizer, WindowSampler, aircraft_params,  # noqa: E402
                                    features, load_set, split_mask)
 from wingjepa.models.jepa import model_from_config, sigreg  # noqa: E402
 
@@ -189,6 +192,9 @@ def main():
     ap.add_argument("--prior", default=None, help="prior of the physics head (scripts/fit_prior.py)")
     ap.add_argument("--trunk", default=None, help="jepa run whose frozen trunk is reused (c_jepa mode)")
     ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
+    ap.add_argument("--lambda-phys", type=float, default=0.0,
+                    help="physics in the loss (a0 mode, MLP head): weight of the kinematic residuals of the "
+                         "predicted states (attitude kinematics, vertical speed), like Pred + Phys Reg in SkyJEPA")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--correction", choices=["free", "param", "porth"], default="free",
                     help="physics head: free forces at every step, prior coefficients changed once per flight, "
@@ -296,7 +302,33 @@ def main():
             z0, zs, U = model.latents(seq, H, True, ac)
         pred, raw = model.head_states(z0, zs, U, seq, H, ac)
         res = (raw ** 2).mean() if raw is not None else pred.new_zeros(())
-        return state_err(pred, seq), res
+        return state_err(pred, seq), res, pred
+
+    mean_t, std_t = (torch.as_tensor(v, device=dev) for v in (norm.mean, norm.std))
+    i_wd = N_STATE + N_CTRL + 2                                       # wind_down among the 16 quantities
+
+    def phys_residual(pred, seq, dt=0.05):
+        """Physics in the loss: how much the predicted states (B, T, 9, normalized) violate the kinematics,
+        known exactly whatever the aircraft: attitude kinematics phi' = p + (q sin phi + r cos phi) tan theta,
+        theta' = q cos phi - r sin phi (finite differences between consecutive predictions, trapezoidal rule,
+        from the last observed state), and the vertical speed given by Va, alpha, beta and the attitude.
+        Each residual is divided by the spread of the matching quantity (p, q, vertical speed)."""
+        s = torch.cat([seq[:, H - 1:H, :N_STATE], pred], 1) * std_t[:N_STATE] + mean_t[:N_STATE]
+        Va, al, be, p, q, r, ph, th, hd = s.unbind(-1)
+        th = th.clamp(-1.4, 1.4)
+        sf, cf, st, ct = torch.sin(ph), torch.cos(ph), torch.sin(th), torch.cos(th)
+        f_ph, f_th = p + (q * sf + r * cf) * torch.tan(th), q * cf - r * sf
+        d = ph[:, 1:] - ph[:, :-1]
+        r_ph = torch.atan2(torch.sin(d), torch.cos(d)) / dt - 0.5 * (f_ph[:, 1:] + f_ph[:, :-1])
+        r_th = (th[:, 1:] - th[:, :-1]) / dt - 0.5 * (f_th[:, 1:] + f_th[:, :-1])
+        u, v, w = Va * torch.cos(al) * torch.cos(be), Va * torch.sin(be), Va * torch.sin(al) * torch.cos(be)
+        wd = seq[:, H:, i_wd] * std_t[i_wd] + mean_t[i_wd]
+        r_hd = hd[:, 1:] - ((u * st - v * sf * ct - w * cf * ct)[:, 1:] - wd)        # predicted steps only
+        return ((r_ph / std_t[3]) ** 2 + (r_th / std_t[4]) ** 2 + (r_hd / std_t[8]) ** 2).mean() / 3
+
+    if a.lambda_phys > 0:      # check: the true states satisfy the kinematics (up to the finite differences)
+        print(f"physics residual of the true validation states: "
+              f"{phys_residual(val_seq[:, H:, :N_STATE], val_seq).item():.3g}", flush=True)
 
     val_state = lambda: state_loss(val_seq, val_ac)[0]
     log = []
@@ -317,7 +349,8 @@ def main():
     # what must match for a restart: all the options but the machine-side ones; options added after
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
-    later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8")
+    later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
+                 lambda_phys=0.0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
@@ -384,7 +417,7 @@ def main():
 
         def loss_cj(step):
             T = T_at(step, a.steps2)
-            ls, res = state_loss(*nxt(T), frozen=True)
+            ls, res, _ = state_loss(*nxt(T), frozen=True)
             return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
 
         best = run_stage("tete_physique", list(model.decoder.parameters()), loss_cj, val_state, a.steps2,
@@ -395,7 +428,11 @@ def main():
 
         def loss_direct(step):
             T = T_at(step, steps)
-            ls, res = state_loss(*nxt(T))
+            seq, ac = nxt(T)
+            ls, res, pred = state_loss(seq, ac)
+            if a.lambda_phys > 0:
+                ph = phys_residual(pred, seq)
+                return ls + a.lambda_res * res + a.lambda_phys * ph, dict(state=ls.item(), phys=ph.item(), T=T)
             return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
 
         best = run_stage(a.mode, list(model.parameters()), loss_direct, val_state, steps, a, log, ckpt, resume)

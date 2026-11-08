@@ -19,13 +19,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-LABELS = {   # order of the legend
-    "tecs": "TECS autopilot",
-    "c_direct_calm_sky_nul": "MPPI + physics head, end to end",
-    "c_jepa_calm_sky_nul": "MPPI + JEPA frozen + physics probe",
-    "a0_calm_sky": "MPPI + A0 (black box)",
-    "a0_calm_sky_noiseaug": "MPPI + A0, noise-augmented",
-    "jepa_calm_sky": "MPPI + JEPA frozen + MLP probe",
+LABELS = {   # order of the legend; MPPI with each world model, except TECS
+    "tecs": "TECS autopilot (no model)",
+    "c_direct_calm_sky_nul": "physics head, end to end",
+    "c_jepa_calm_sky_nul": "JEPA frozen + physics probe",
+    "a0_calm_sky": "A0 + MLP (black box)",
+    "a0_calm_sky_noiseaug": "A0 + MLP, noise-augmented",
+    "jepa_calm_sky": "JEPA frozen + MLP probe",
+}
+COLORS = {   # same colors as Fig. 2 (scripts/plot_paper.py)
+    "tecs": "k", "c_direct_calm_sky_nul": "C6", "c_jepa_calm_sky_nul": "C4", "a0_calm_sky": "C1",
+    "a0_calm_sky_noiseaug": "C8", "jepa_calm_sky": "C3",
 }
 GROUPS = ("avions_entrainement", "avions_de_test")
 KEYS = ("rms_V_ms", "rms_h_m", "survival", "mean_abs_dcmd")
@@ -55,7 +59,7 @@ def main():
     order = [m for m in LABELS if m in R] + [m for m in R if m not in LABELS]
     plt.rcParams.update({"font.size": 7, "axes.labelsize": 7, "xtick.labelsize": 6, "ytick.labelsize": 6,
                          "axes.linewidth": 0.6, "lines.linewidth": 1.2})
-    fig, axs = plt.subplots(1, 5, figsize=(7.0, 1.55), gridspec_kw=dict(width_ratios=[1, 1, 1, 1, 0.95]))
+    fig, axs = plt.subplots(1, 5, figsize=(7.0, 1.55), gridspec_kw=dict(width_ratios=[1, 1, 1, 1, 1.15]))
     panels = [(0, "airspeed RMS error [m/s]", False), (1, "altitude RMS error [m]", False),
               (2, "survival", True), (3, "command change per step", True)]
     for ax, (j, ylabel, keep_all) in zip(axs[:4], panels):
@@ -66,7 +70,7 @@ def main():
             y = np.array([R[m][nz][:, j].mean() for nz in nzs])
             lo = y - np.array([R[m][nz][:, j].min() for nz in nzs])
             hi = np.array([R[m][nz][:, j].max() for nz in nzs]) - y
-            ax.errorbar(nzs, y, yerr=[lo, hi], color="k" if m == "tecs" else f"C{i}", marker="o", ms=2,
+            ax.errorbar(nzs, y, yerr=[lo, hi], color=COLORS.get(m, f"C{i}"), marker="o", ms=2,
                         capsize=1.5, lw=1.0, elinewidth=0.6, ls="--" if m == "tecs" else "-",
                         label=LABELS.get(m, m))
         ax.set_xlabel("sensor noise [std]", labelpad=1)
@@ -77,7 +81,8 @@ def main():
     axs[2].set_ylim(-0.05, 1.05)
     axs[4].axis("off")
     h, l = axs[2].get_legend_handles_labels()
-    axs[4].legend(h, l, loc="center left", fontsize=6, frameon=False, handlelength=1.6, borderaxespad=0)
+    axs[4].legend(h, l, loc="center left", fontsize=6, frameon=False, handlelength=1.6, borderaxespad=0,
+                  title="controller (MPPI with model)", title_fontsize=6)
     fig.tight_layout(pad=0.2, w_pad=0.5)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(a.out)

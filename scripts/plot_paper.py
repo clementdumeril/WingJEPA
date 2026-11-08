@@ -27,6 +27,12 @@ SHORT = {   # legend of the paper, same order as LABELS
     "c_direct_calm_sky_nul": "Physics head, end to end",
     "c_direct_calm_sky_porth": "Port-Hamiltonian, end to end",
 }
+COLORS = {   # fixed per model, so that every figure of the paper uses the same color for the same model
+    "a0_calm_sky_pred": "C0", "a0_calm_sky": "C1", "c_jepa_calm_sky_a0": "C2", "jepa_calm_sky": "C3",
+    "c_jepa_calm_sky_nul": "C4", "jepa_ft_calm_sky_ft": "C5", "c_direct_calm_sky_nul": "C6",
+    "a0_calm_sky_physreg": "C7", "c_direct_calm_sky_porth": "C9",
+}
+EXTRA = ("a0_calm_sky_physreg", "c_direct_calm_sky_porth")   # in Table 1 only, unless --extra 1
 
 
 def main():
@@ -34,9 +40,10 @@ def main():
     ap.add_argument("--runs", default="runs")
     ap.add_argument("--set", default="test_long")
     ap.add_argument("--out", default="docs/figures/paper_fig2.pdf")
+    ap.add_argument("--extra", type=int, default=0, help="1: also plot " + ", ".join(EXTRA))
     a = ap.parse_args()
     res = load(a.runs, a.set)
-    order = [b for b in LABELS if b in res]
+    order = [b for b in LABELS if b in res and (a.extra or b not in EXTRA)]
     plt.rcParams.update({"font.size": 7, "axes.labelsize": 7, "xtick.labelsize": 6, "ytick.labelsize": 6,
                          "axes.linewidth": 0.6, "lines.linewidth": 1.2})
     fig, axs = plt.subplots(1, 4, figsize=(7.0, 1.45), gridspec_kw=dict(width_ratios=[1, 1, 1, 0.78]))
@@ -47,9 +54,9 @@ def main():
                 continue
             y = np.stack(res[b][g]["position_rmse_m"])
             t = (np.arange(y.shape[1]) + 1) * res[b][g]["dt"]
-            ax.plot(t, y.mean(0), color=f"C{i}", label=SHORT.get(b, b))
+            ax.plot(t, y.mean(0), color=COLORS.get(b, f"C{i}"), label=SHORT.get(b, b))
             if len(y) > 1:
-                ax.fill_between(t, y.min(0), y.max(0), color=f"C{i}", alpha=0.18, lw=0)
+                ax.fill_between(t, y.min(0), y.max(0), color=COLORS.get(b, f"C{i}"), alpha=0.18, lw=0)
         ax.set_title(title, fontsize=7, pad=2)
         ax.set_xlabel("prediction time [s]", labelpad=1)
     axs[0].set_ylabel("position RMSE [m]", labelpad=1)
@@ -59,7 +66,7 @@ def main():
         if r is None:
             continue
         y = np.array(r["noise"])
-        ax.errorbar(r["sigmas"], y.mean(0), yerr=[y.mean(0) - y.min(0), y.max(0) - y.mean(0)], color=f"C{i}",
+        ax.errorbar(r["sigmas"], y.mean(0), yerr=[y.mean(0) - y.min(0), y.max(0) - y.mean(0)], color=COLORS.get(b, f"C{i}"),
                     marker="o", ms=2, capsize=1.5, lw=1.0, elinewidth=0.6)
     ax.set_title("noise robustness, training-range", fontsize=7, pad=2)
     ax.set_xlabel("observation noise [std]", labelpad=1)

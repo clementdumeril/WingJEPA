@@ -11,6 +11,10 @@
   --lambda-phys L (a0): physics in the loss instead of the architecture (Pred + Phys Reg in SkyJEPA): the MLP
                    predictions are also penalized, with weight L, when they violate the kinematics known for
                    any aircraft (attitude kinematics from p, q, r; vertical speed from Va, alpha, beta, attitude).
+  --input-noise S: noise augmentation: Gaussian noise of sigma * std (normalized units), sigma drawn uniformly
+                   in [0, S] for each window, added to the past states (the H context steps) of every training
+                   batch; the future states (targets) and the validation batches stay clean. Same noise model
+                   as the robustness tests, so S = 0.5 covers all the tested levels.
   --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
                    learned (like the SkyJEPA physics probe), same loss as c_direct.
   --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
@@ -195,6 +199,8 @@ def main():
     ap.add_argument("--lambda-phys", type=float, default=0.0,
                     help="physics in the loss (a0 mode, MLP head): weight of the kinematic residuals of the "
                          "predicted states (attitude kinematics, vertical speed), like Pred + Phys Reg in SkyJEPA")
+    ap.add_argument("--input-noise", type=float, default=0.0,
+                    help="noise augmentation: max std (normalized units) of the noise added to the past states")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--correction", choices=["free", "param", "porth"], default="free",
                     help="physics head: free forces at every step, prior coefficients changed once per flight, "
@@ -290,8 +296,11 @@ def main():
 
     def nxt(T):
         rows = S_tr.sample_rows(a.batch)
-        return (torch.from_numpy(S_tr.gather(rows)[:, :H + T]).to(dev),
-                torch.from_numpy(S_tr.aircraft(rows)).to(dev))
+        seq = torch.from_numpy(S_tr.gather(rows)[:, :H + T]).to(dev)
+        if a.input_noise > 0:                     # noise augmentation of the past states only
+            sig = a.input_noise * torch.rand(seq.shape[0], 1, 1, device=dev)      # level drawn per window
+            seq[:, :H, :N_STATE] += sig * torch.randn_like(seq[:, :H, :N_STATE])
+        return seq, torch.from_numpy(S_tr.aircraft(rows)).to(dev)
 
     def state_err(pred, seq):
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
@@ -350,7 +359,7 @@ def main():
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
-                 lambda_phys=0.0)
+                 lambda_phys=0.0, input_noise=0.0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)

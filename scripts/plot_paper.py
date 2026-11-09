@@ -30,9 +30,9 @@ SHORT = {   # legend of the paper, same order as LABELS
 COLORS = {   # fixed per model, so that every figure of the paper uses the same color for the same model
     "a0_calm_sky_pred": "C0", "a0_calm_sky": "C1", "c_jepa_calm_sky_a0": "C2", "jepa_calm_sky": "C3",
     "c_jepa_calm_sky_nul": "C4", "jepa_ft_calm_sky_ft": "C5", "c_direct_calm_sky_nul": "C6",
-    "a0_calm_sky_physreg": "C7", "c_direct_calm_sky_porth": "C9",
+    "a0_calm_sky_physreg": "C7", "c_direct_calm_sky_porth": "C9", "a0_calm_sky_noiseaug": "C8",
 }
-EXTRA = ("a0_calm_sky_physreg", "c_direct_calm_sky_porth")   # in Table 1 only, unless --extra 1
+EXTRA = ("a0_calm_sky_physreg", "c_direct_calm_sky_porth", "a0_calm_sky_noiseaug")   # in Table 1 only, unless --extra 1
 
 
 def main():

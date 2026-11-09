@@ -1,0 +1,116 @@
+{
+ "args": {
+  "controllers": [
+   "runs/c_direct_calm_sky_nul_s2",
+   "runs/c_jepa_calm_sky_nul_s2",
+   "runs/jepa_calm_sky_s2",
+   "runs/a0_calm_sky_s2"
+  ],
+  "config": "configs/data_calm.yaml",
+  "out": "runs/closed_loop/sweep_nz0.1_s2.json",
+  "n_train": 20,
+  "n_test": 20,
+  "duration": 60.0,
+  "seed": 0,
+  "turbulence": "none",
+  "gust": 0.0,
+  "noise": 0.1,
+  "horizon": 30,
+  "samples": 256,
+  "sigma": [
+   0.04,
+   0.04,
+   0.03,
+   0.08
+  ],
+  "smooth": 0.8,
+  "lam": 0.1,
+  "w_du": 0.5,
+  "compile": 1,
+  "device": "cuda"
+ },
+ "runs/c_direct_calm_sky_nul_s2": {
+  "avions_entrainement": {
+   "n": 20,
+   "survival": 1.0,
+   "time_alive_s": 60.0,
+   "rms_h_m": 7.420905113220215,
+   "rms_V_ms": 0.8786910772323608,
+   "rms_phi_deg": 4.3989763259887695,
+   "mean_abs_dcmd": 0.023990647867321968
+  },
+  "avions_de_test": {
+   "n": 20,
+   "survival": 1.0,
+   "time_alive_s": 60.0,
+   "rms_h_m": 6.805482387542725,
+   "rms_V_ms": 1.1353143453598022,
+   "rms_phi_deg": 5.005356788635254,
+   "mean_abs_dcmd": 0.023956822231411934
+  },
+  "seconds": 105.8
+ },
+ "runs/c_jepa_calm_sky_nul_s2": {
+  "avions_entrainement": {
+   "n": 20,
+   "survival": 1.0,
+   "time_alive_s": 60.0,
+   "rms_h_m": 7.500557899475098,
+   "rms_V_ms": 0.8927242159843445,
+   "rms_phi_deg": 4.352274417877197,
+   "mean_abs_dcmd": 0.021366629749536514
+  },
+  "avions_de_test": {
+   "n": 20,
+   "survival": 1.0,
+   "time_alive_s": 60.0,
+   "rms_h_m": 7.319410800933838,
+   "rms_V_ms": 1.2314928770065308,
+   "rms_phi_deg": 5.057934761047363,
+   "mean_abs_dcmd": 0.02235523611307144
+  },
+  "seconds": 72.0
+ },
+ "runs/jepa_calm_sky_s2": {
+  "avions_entrainement": {
+   "n": 20,
+   "survival": 0.0,
+   "time_alive_s": 11.075000000000001,
+   "rms_h_m": 4.770573616027832,
+   "rms_V_ms": 3.4109580516815186,
+   "rms_phi_deg": 16.51624870300293,
+   "mean_abs_dcmd": 0.035117849707603455
+  },
+  "avions_de_test": {
+   "n": 20,
+   "survival": 0.0,
+   "time_alive_s": 8.0325,
+   "rms_h_m": 4.48553991317749,
+   "rms_V_ms": 3.204230546951294,
+   "rms_phi_deg": 16.689422607421875,
+   "mean_abs_dcmd": 0.0381954051554203
+  },
+  "seconds": 49.7
+ },
+ "runs/a0_calm_sky_s2": {
+  "avions_entrainement": {
+   "n": 20,
+   "survival": 0.95,
+   "time_alive_s": 58.34,
+   "rms_h_m": 7.147072792053223,
+   "rms_V_ms": 0.9382123947143555,
+   "rms_phi_deg": 4.3709611892700195,
+   "mean_abs_dcmd": 0.02622850239276886
+  },
+  "avions_de_test": {
+   "n": 20,
+   "survival": 1.0,
+   "time_alive_s": 60.0,
+   "rms_h_m": 6.475305080413818,
+   "rms_V_ms": 1.1622689962387085,
+   "rms_phi_deg": 5.042048454284668,
+   "mean_abs_dcmd": 0.026383306831121445
+  },
+  "seconds": 49.6
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "args": {
+  "controllers": [
+   "runs/a0_calm_sky_noiseaug_s2"
+  ],
+  "config": "configs/data_calm.yaml",
+  "out": "runs/closed_loop/sweep_nz0_s2_aug.json",
+  "n_train": 20,
+  "n_test": 20,
+  "duration": 60.0,
+  "seed": 0,
+  "turbulence": "none",
+  "gust": 0.0,
+  "noise": 0.0,
+  "horizon": 30,
+  "samples": 256,
+  "sigma": [
+   0.04,
+   0.04,
+   0.03,
+   0.08
+  ],
+  "smooth": 0.8,
+  "lam": 0.1,
+  "w_du": 0.5,
+  "compile": 1,
+  "device": "cuda"
+ },
+ "runs/a0_calm_sky_noiseaug_s2": {
+  "avions_entrainement": {
+   "n": 20,
+   "survival": 0.95,
+   "time_alive_s": 59.182500000000005,
+   "rms_h_m": 7.269866943359375,
+   "rms_V_ms": 0.8887912631034851,
+   "rms_phi_deg": 4.32407283782959,
+   "mean_abs_dcmd": 0.01956300251185894
+  },
+  "avions_de_test": {
+   "n": 20,
+   "survival": 0.9,
+   "time_alive_s": 56.862500000000004,
+   "rms_h_m": 6.723431587219238,
+   "rms_V_ms": 1.2237340211868286,
+   "rms_phi_deg": 5.030150413513184,
+   "mean_abs_dcmd": 0.02041655406355858
+  },
+  "seconds": 68.3
+ }
+}

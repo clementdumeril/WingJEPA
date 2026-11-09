@@ -22,6 +22,7 @@ import numpy as np  # noqa: E402
 LABELS = {   # order of the legend; MPPI with each world model, except TECS
     "tecs": "TECS autopilot (no model)",
     "c_direct_calm_sky_nul": "physics head, end to end",
+    "c_direct_calm_sky_nul_noiseaug": "physics head, noise-augmented",
     "c_jepa_calm_sky_nul": "JEPA frozen + physics probe",
     "a0_calm_sky": "A0 + MLP (black box)",
     "a0_calm_sky_noiseaug": "A0 + MLP, noise-augmented",
@@ -29,7 +30,7 @@ LABELS = {   # order of the legend; MPPI with each world model, except TECS
 }
 COLORS = {   # same colors as Fig. 2 (scripts/plot_paper.py)
     "tecs": "k", "c_direct_calm_sky_nul": "C6", "c_jepa_calm_sky_nul": "C4", "a0_calm_sky": "C1",
-    "a0_calm_sky_noiseaug": "C8", "jepa_calm_sky": "C3",
+    "a0_calm_sky_noiseaug": "C8", "jepa_calm_sky": "C3", "c_direct_calm_sky_nul_noiseaug": "#8c004b",
 }
 GROUPS = ("avions_entrainement", "avions_de_test")
 KEYS = ("rms_V_ms", "rms_h_m", "survival", "mean_abs_dcmd")

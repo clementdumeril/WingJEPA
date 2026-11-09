@@ -139,7 +139,7 @@ class WorldModel(nn.Module):
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
                  n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free",
-                 param_bound=0.0, action_history=False, target_window=0, act_channels=None):
+                 param_bound=0.0, action_history=False, target_window=0, act_channels=None, n_oracle=0):
         super().__init__()
         self.target_window = target_window
         n_act = N_CTRL if action_history else 0
@@ -153,13 +153,13 @@ class WorldModel(nn.Module):
         else:
             from wingjepa.models.physics import PhysicsHead
             self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub,
-                                       correction=correction, param_bound=param_bound)
+                                       correction=correction, param_bound=param_bound, n_oracle=n_oracle)
 
     def ctx(self, ac):
         """Aircraft parameters (B, 5) -> encoder input: relative deviation from nominal, / 0.3."""
         if not self.n_ctx:
             return None
-        return (ac / self.ac_nominal - 1) / 0.3
+        return (ac[:, :5] / self.ac_nominal - 1) / 0.3
 
     def encode(self, past, ac=None):
         """past : (B, H, 16) normalized window (states, commands, wind) -> z (B, D)."""
@@ -232,4 +232,5 @@ def model_from_config(cfg, prior=None):
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
                       correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
                       action_history=bool(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
-                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None)
+                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None,
+                      n_oracle=8 if cfg.get("oracle_params") and head == "physics" else 0)

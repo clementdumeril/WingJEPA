@@ -72,6 +72,10 @@ class Flights:
         ov = sample_overrides(rng, n, p, cfg["aircraft"]["ranges"], self.is_test)
         self.ac = us.UltraStick(p, n, us.FaserTables(p["aero_file"]), ov)
         self.params = np.stack([ov["mass"], ov["Ixx"], ov["Iyy"], ov["Izz"], ov["Ixz"]], 1).astype(np.float32)
+        # same columns as windows.aircraft_params(meta, oracle=True); 5: only read by an oracle physics head
+        extra = [ov["power_scale"], ov["cg_shift"]] + [ov["aero_scale"][k] for k in ("CD", "CY", "CL", "Cl", "Cm", "Cn")]
+        extra = [(e - 1) / 0.3 for e in extra[:1]] + [extra[1] / 0.05] + [(e - 1) / 0.3 for e in extra[2:]]
+        self.params = np.c_[self.params, np.stack(extra, 1)].astype(np.float32)
         self.h0, self.V0 = rng.uniform(150, 300, n), rng.uniform(17, 25, n)
         psi0 = rng.uniform(-np.pi, np.pi, n)
         self.Y, self.cmd0, self.thr0, ok = self.ac.trim(self.V0, h=self.h0, psi=psi0)

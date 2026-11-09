@@ -15,6 +15,9 @@
                    in [0, S] for each window, added to the past states (the H context steps) of every training
                    batch; the future states (targets) and the validation batches stay clean. Same noise model
                    as the robustness tests, so S = 0.5 covers all the tested levels.
+  --oracle-params 1 (c_direct, c_jepa): the correction network of the physics head also reads the true motor,
+                   CG and aerodynamic scale factors of each flight (windows.aircraft_params(oracle=True)). Not a
+                   model for use: the gap to the same run without it is the cost of identifying the aircraft.
   --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
                    learned (like the SkyJEPA physics probe), same loss as c_direct.
   --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
@@ -201,6 +204,9 @@ def main():
                          "predicted states (attitude kinematics, vertical speed), like Pred + Phys Reg in SkyJEPA")
     ap.add_argument("--input-noise", type=float, default=0.0,
                     help="noise augmentation: max std (normalized units) of the noise added to the past states")
+    ap.add_argument("--oracle-params", type=int, default=0,
+                    help="1: the physics head also reads the true aero, motor and CG factors of each flight "
+                         "(diagnostic: the error left when the aircraft does not have to be identified)")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--correction", choices=["free", "param", "porth"], default="free",
                     help="physics head: free forces at every step, prior coefficients changed once per flight, "
@@ -260,7 +266,7 @@ def main():
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
-    P = aircraft_params(meta)
+    P = aircraft_params(meta, oracle=bool(a.oracle_params))
     tr, va = split_mask(meta, "train", a.seed), split_mask(meta, "val", a.seed)
     norm = Normalizer.from_dict(trunk_cfg["norm"]) if trunk_cfg else Normalizer.fit(X[tr], alive[tr])
     Xn = norm(X)
@@ -359,7 +365,7 @@ def main():
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
-                 lambda_phys=0.0, input_noise=0.0)
+                 lambda_phys=0.0, input_noise=0.0, oracle_params=0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)

@@ -106,7 +106,7 @@ def main():
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
-    P = aircraft_params(meta)
+    P = aircraft_params(meta, oracle=True)          # columns 5: only read by an oracle physics head
     raw = {k: data[:, :, ch.index(k)].astype(np.float64)
            for k in ("psi", "north", "east", "h", "wind_n_est", "wind_e_est")}
     if (meta["split"] == "train").any():

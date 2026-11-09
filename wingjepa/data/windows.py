@@ -50,9 +50,20 @@ def features(data, ch, dt=0.05):
     return X, alive, c["h"].astype(np.float32)
 
 
-def aircraft_params(meta):
-    """(n, 5) float32: mass and inertias of each flight, in AIRCRAFT order."""
-    return np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
+ORACLE = ["power_scale", "cg_shift"] + [f"aero_scale_{k}" for k in ("CD", "CY", "CL", "Cl", "Cm", "Cn")]
+
+
+def aircraft_params(meta, oracle=False):
+    """(n, 5) float32: mass and inertias of each flight, in AIRCRAFT order.
+    oracle=True: (n, 13), followed by the 8 ORACLE parameters drawn by the simulator for each flight (motor
+    power factor, CG shift, aerodynamic scale factors), normalized: (factor - 1) / 0.3 and cg_shift / 0.05.
+    Used only by the "oracle" physics head (train_a.py --oracle-params 1), which tells how much of its
+    error comes from identifying the aircraft."""
+    P = np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
+    if not oracle:
+        return P
+    extra = [(meta[k] - 1) / 0.3 if k != "cg_shift" else meta[k] / 0.05 for k in ORACLE]
+    return np.concatenate([P, np.stack(extra, 1).astype(np.float32)], 1)
 
 
 def true_wind_features(data, ch):

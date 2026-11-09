@@ -185,7 +185,7 @@ def main():
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, h = features(data, ch)
-    P = aircraft_params(meta)
+    P = aircraft_params(meta, oracle=True)          # columns 5: only read by an oracle physics head
     X_true = X.copy()
     X_true[:, :, N_STATE + N_CTRL:] = true_wind_features(data, ch)
     long_set = data.shape[1] * DT > 60

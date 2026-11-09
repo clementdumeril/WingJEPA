@@ -87,10 +87,13 @@ class PhysicsHead(nn.Module):
     outputs, like the MLP decoder)."""
 
     def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05,
-                 correction="free", param_bound=0.0):
+                 correction="free", param_bound=0.0, n_oracle=0):
         super().__init__()
         assert correction in ("free", "param", "porth"), correction
         self.mode, self.param_bound = correction, param_bound
+        # n_oracle > 0: the correction network also reads the true aircraft parameters beyond mass and
+        # inertia (columns 5: of ac, windows.aircraft_params(oracle=True)), a diagnostic upper bound
+        self.n_oracle = n_oracle
         for k in COEFS:
             self.register_buffer(f"c_{k}", torch.tensor(prior["coef"][k], dtype=torch.float32))
         scale = []
@@ -116,6 +119,7 @@ class PhysicsHead(nn.Module):
             n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, iu.shape[1] + il.shape[1] + 6 * N_CTRL   # 15+21+24
         else:
             n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, 6
+        n_in += n_oracle
         self.net = nn.Sequential(nn.Linear(n_in, hidden), nn.GELU(),
                                  nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, n_out))
         nn.init.zeros_(self.net[-1].weight)
@@ -203,7 +207,7 @@ class PhysicsHead(nn.Module):
         else:
             C = self.prior_body(*args) + dC
         qS = 0.5 * self.rho * Va * Va * self.S
-        m, Ixx, Iyy, Izz, Ixz = ac.unbind(-1)
+        m, Ixx, Iyy, Izz, Ixz = ac[..., :5].unbind(-1)
         g = self.g
         sf, cf, st, ct = torch.sin(phi), torch.cos(phi), torch.sin(th), torch.cos(th)
         du = r * v - q * w - g * st + C[:, 0] * qS / m
@@ -232,10 +236,11 @@ class PhysicsHead(nn.Module):
             x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         return x
 
-    def correction(self, z, s_n=None, u_n=None):
+    def correction(self, z, s_n=None, u_n=None, extra=None):
         """Correction and raw network output (for the size penalty): (B, 6) from z_k, the state and the
-        inputs ("free"), or (B, 38) coefficient changes from z_0 alone ("param")."""
-        raw = self.net(z if self.mode == "param" else torch.cat([z, s_n, u_n], -1))
+        inputs ("free"), or (B, 38) coefficient changes from z_0 alone ("param"). extra: oracle parameters."""
+        x = z if self.mode == "param" else torch.cat([z, s_n, u_n], -1)
+        raw = self.net(x if extra is None else torch.cat([x, extra], -1))
         if self.mode == "param" and self.param_bound > 0:
             return self.param_bound * torch.tanh(raw * self.out_scale / self.param_bound), raw
         return raw * self.out_scale, raw
@@ -258,12 +263,16 @@ class PhysicsHead(nn.Module):
         Uph = U * std_u + mean_u
         x = self.from_features(s0 * std_s + mean_s)
         s_n, out, raws = s0, [], []
+        extra = ac[:, 5:5 + self.n_oracle] if self.n_oracle else None
+        if extra is not None:
+            assert extra.shape[1] == self.n_oracle, "oracle head: pass aircraft_params(meta, oracle=True)"
+        ac = ac[:, :5]
         if self.mode == "param":
-            dC, raw = self.correction(zs[:, 0])
+            dC, raw = self.correction(zs[:, 0], extra=extra)
             raws.append(raw)
         for k in range(U.shape[1]):
             if self.mode != "param":
-                dC, raw = self.correction(zs[:, k], s_n, U[:, k])
+                dC, raw = self.correction(zs[:, k], s_n, U[:, k], extra)
                 raws.append(raw)
             # contiguous copy: a strided view of Uph changes stride with the horizon T, and every new
             # stride would make the compiled step recompile (then fall back to the slow path)

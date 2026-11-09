@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" font-family="Arial, Helvetica, sans-serif">
+  <!-- Overview for the portfolio card (current setting). Render: python outils/render_svg.py docs/figures/card/overview_card.svg (CAREER repo). -->
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="1198" height="618" rx="16" fill="#FFFFFF" stroke="#D0D7DE" stroke-width="1.5"/>
+
+  <!-- zone outlines -->
+  <rect x="24" y="44" width="200" height="310" rx="10" fill="none" stroke="#B8C2CC" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <rect x="240" y="44" width="496" height="310" rx="10" fill="none" stroke="#B8C2CC" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <rect x="752" y="44" width="196" height="310" rx="10" fill="none" stroke="#B8C2CC" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <rect x="964" y="44" width="212" height="310" rx="10" fill="none" stroke="#B8C2CC" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <g font-size="13" fill="#5A6875" letter-spacing="1.2">
+    <text x="36" y="34">INPUTS</text>
+    <text x="252" y="34">WORLD MODEL, ABOUT 11K PARAMETERS</text>
+    <text x="764" y="34">CONTROL</text>
+    <text x="976" y="34">AIRCRAFT</text>
+  </g>
+
+  <!-- commands, drawn as step signals -->
+  <g fill="none" stroke-width="2">
+    <path d="M 40,78 h 14 v -10 h 18 v 18 h 16 v -8 h 14" stroke="#C97A2B"/>
+    <path d="M 40,100 h 22 v 8 h 14 v -14 h 26" stroke="#C97A2B" opacity="0.7"/>
+  </g>
+  <text x="112" y="86" font-size="17" fill="#15202A">commands</text>
+  <text x="112" y="106" font-size="15" fill="#5A6875">4 + wind</text>
+
+  <!-- past states -->
+  <image href="ov_states.png" x="36" y="150" width="80" height="120" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="36" y="150" width="80" height="120" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="124" y="196" font-size="16" fill="#15202A">past 0.55 s</text>
+  <text x="124" y="216" font-size="15" fill="#5A6875">11 × 9 states</text>
+
+  <!-- commands into the predictor, above the encoder row -->
+  <path d="M 210,92 L 452,92 L 452,148" fill="none" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="330" y="82" font-size="15" fill="#5A6875" text-anchor="middle"><tspan font-family="Georgia, serif" font-style="italic">u</tspan><tspan baseline-shift="sub" font-size="11">k</tspan> through an action TCN</text>
+
+  <!-- encoder and predictor -->
+  <line x1="218" y1="186" x2="258" y2="186" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="260" y="150" width="120" height="72" rx="10" fill="#E2EBFA" stroke="#1F5FBF" stroke-width="1.5"/>
+  <text x="320" y="182" font-size="22" fill="#15202A" text-anchor="middle">TCN</text>
+  <text x="320" y="205" font-size="15" fill="#5A6875" text-anchor="middle">causal encoder</text>
+  <line x1="380" y1="186" x2="404" y2="186" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="392" y="176" font-size="15" fill="#5A6875" text-anchor="middle"><tspan font-family="Georgia, serif" font-style="italic">z</tspan><tspan baseline-shift="sub" font-size="11">0</tspan></text>
+  <rect x="406" y="150" width="120" height="72" rx="10" fill="#E2EBFA" stroke="#1F5FBF" stroke-width="1.5"/>
+  <text x="466" y="182" font-size="22" fill="#15202A" text-anchor="middle">GRU</text>
+  <text x="466" y="205" font-size="15" fill="#5A6875" text-anchor="middle"><tspan font-family="Georgia, serif" font-style="italic">z</tspan> ∈ ℝ<tspan baseline-shift="super" font-size="11">24</tspan>, 5 s</text>
+
+  <!-- heads -->
+  <path d="M 526,186 L 544,186 L 544,120 L 556,120" fill="none" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <path d="M 544,186 L 544,268 L 556,268" fill="none" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="558" y="64" width="164" height="168" rx="10" fill="#DCF1EE" stroke="#0D7A6F" stroke-width="1.5"/>
+  <text x="640" y="96" font-size="21" fill="#15202A" text-anchor="middle">Physics head</text>
+  <text x="640" y="118" font-size="15" fill="#0D7A6F" text-anchor="middle">trained end to end</text>
+  <g font-size="15" fill="#15202A" text-anchor="middle">
+    <text x="640" y="150">Newton–Euler, RK4</text>
+    <text x="640" y="172">true mass, inertia</text>
+    <text x="640" y="194">learned aero</text>
+    <text x="640" y="214">coefficients <tspan font-family="Georgia, serif" font-style="italic">C</tspan>(<tspan font-family="Georgia, serif" font-style="italic">z</tspan>)</text>
+  </g>
+  <rect x="558" y="244" width="164" height="56" rx="10" fill="#FFFFFF" stroke="#8A9AA8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="640" y="268" font-size="17" fill="#15202A" text-anchor="middle">MLP head</text>
+  <text x="640" y="288" font-size="14" fill="#5A6875" text-anchor="middle">baselines: A0, JEPA</text>
+  <text x="256" y="276" font-size="15" fill="#5A6875">JEPA: latent prediction + SIGReg,</text>
+  <text x="256" y="295" font-size="15" fill="#5A6875">trunk frozen, then a probe.</text>
+  <text x="256" y="320" font-size="15" fill="#5A6875">End to end: error on the states.</text>
+
+  <!-- MPPI -->
+  <line x1="722" y1="148" x2="764" y2="148" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="743" y="138" font-size="17" fill="#5A6875" text-anchor="middle" font-family="Georgia, serif" font-style="italic">x</text><text x="744" y="126" font-size="13" fill="#5A6875" text-anchor="middle">^</text>
+  <rect x="766" y="64" width="168" height="236" rx="10" fill="#DCF1EE" stroke="#0D7A6F" stroke-width="1.5"/>
+  <text x="850" y="104" font-size="26" fill="#15202A" text-anchor="middle">MPPI</text>
+  <text x="850" y="128" font-size="16" fill="#0D7A6F" text-anchor="middle">plans with the model</text>
+  <g font-size="16" fill="#15202A" text-anchor="middle">
+    <text x="850" y="170">256 samples</text>
+    <text x="850" y="194">1.5 s horizon</text>
+    <text x="850" y="218">altitude and</text>
+    <text x="850" y="238">speed changes</text>
+    <text x="850" y="276" fill="#5A6875" font-size="15">vs a TECS autopilot</text>
+  </g>
+
+  <!-- aircraft -->
+  <line x1="934" y1="148" x2="974" y2="148" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="954" y="138" font-size="15" fill="#15202A" text-anchor="middle"><tspan font-family="Georgia, serif" font-style="italic">u</tspan></text>
+  <rect x="976" y="64" width="188" height="236" rx="10" fill="#F1F4F6" stroke="#8A9AA8" stroke-width="1.5"/>
+  <image href="ov_paths3d.png" x="988" y="76" width="164" height="128" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="988" y="76" width="164" height="128" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="1070" y="236" font-size="21" fill="#15202A" text-anchor="middle">Ultra Stick 120</text>
+  <text x="1070" y="260" font-size="15" fill="#5A6875" text-anchor="middle">6-DoF simulator,</text>
+  <text x="1070" y="279" font-size="15" fill="#5A6875" text-anchor="middle">NASA wind-tunnel data</text>
+
+  <!-- closed loop: measured states back -->
+  <path d="M 1070,300 L 1070,340 L 76,340 L 76,274" fill="none" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="1012" y="331" width="54" height="18" fill="#FFFFFF"/>
+  <text x="1039" y="345" font-size="15" fill="#5A6875" text-anchor="middle">states</text>
+
+  <!-- results band -->
+  <text x="36" y="396" font-size="13" fill="#5A6875" letter-spacing="1.2">RESULTS</text>
+  <line x1="110" y1="391" x2="1164" y2="391" stroke="#E1E6EA" stroke-width="1"/>
+
+  <image href="ov_pos_train.png" x="36" y="412" width="161" height="140" preserveAspectRatio="xMidYMid meet"/>
+  <rect x="36" y="412" width="161" height="140" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="36" y="576" font-size="15" fill="#15202A">open-loop error</text>
+  <text x="36" y="596" font-size="15" fill="#5A6875">pink: physics head</text>
+
+  <image href="ov_pos_extreme.png" x="217" y="412" width="161" height="140" preserveAspectRatio="xMidYMid meet"/>
+  <rect x="217" y="412" width="161" height="140" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="217" y="576" font-size="15" fill="#15202A">unseen, extreme</text>
+  <text x="217" y="596" font-size="15" fill="#5A6875">aircraft: 12.7 m</text>
+
+  <image href="ov_cl_airspeed.png" x="398" y="412" width="113" height="140" preserveAspectRatio="xMidYMid meet"/>
+  <rect x="398" y="412" width="113" height="140" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="398" y="576" font-size="15" fill="#15202A">MPPI airspeed</text>
+  <text x="398" y="596" font-size="15" fill="#5A6875">1.00 vs 1.52 m/s</text>
+
+  <image href="ov_cl_survival.png" x="531" y="412" width="117" height="140" preserveAspectRatio="xMidYMid meet"/>
+  <rect x="531" y="412" width="117" height="140" rx="6" fill="none" stroke="#8A9AA8" stroke-width="1"/>
+  <text x="531" y="576" font-size="15" fill="#15202A">aircraft kept</text>
+  <text x="531" y="596" font-size="15" fill="#5A6875">vs sensor noise</text>
+
+  <text x="668" y="452" font-size="14" fill="#5A6875">black dashed: TECS</text>
+  <text x="668" y="471" font-size="14" fill="#5A6875">pink: physics head</text>
+  <text x="668" y="490" font-size="14" fill="#5A6875">red: JEPA + MLP</text>
+  <text x="668" y="509" font-size="14" fill="#5A6875">probe, crashes</text>
+  <text x="668" y="528" font-size="14" fill="#5A6875">3 seeds, 40 aircraft</text>
+
+  <!-- headline number -->
+  <rect x="880" y="412" width="284" height="140" rx="10" fill="none" stroke="#B8461F" stroke-width="1.5"/>
+  <text x="898" y="470" font-size="42" fill="#B8461F" font-weight="bold">5.8 m</text>
+  <text x="1018" y="452" font-size="16" fill="#15202A">position error</text>
+  <text x="1018" y="472" font-size="16" fill="#15202A">after 5 s, open loop</text>
+  <line x1="904" y1="496" x2="1140" y2="496" stroke="#E1E6EA" stroke-width="1"/>
+  <text x="904" y="524" font-size="16" fill="#5A6875">8.1 m: same head, frozen</text>
+  <text x="904" y="544" font-size="16" fill="#5A6875">JEPA latent (SkyJEPA's recipe)</text>
+</svg>

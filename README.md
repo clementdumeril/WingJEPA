@@ -9,10 +9,11 @@ A small world model (TCN encoders, GRU predictor, about 11k parameters) that lea
 fixed-wing drone (Ultra Stick 120) will fly from its recent states and the commands, so it can serve as a learned
 simulator. Independent project for *Physics-Inspired Machine Learning*, UC Berkeley, Fall 2026. Simulation only.
 
-- A Newton-Euler physics head makes its predictions 2.5x more accurate than the same network without physics: 5.8 m
-  against 14.3 m position error after 5 s.
-- That also beats the recipe of SkyJEPA, a recent paper I reproduced on the fixed wing (8.1 m for its frozen physics
-  probe).
+- Trained end to end with the network, a Newton-Euler physics head predicts 5 s of flight within 5.8 m of position
+  error, against 8.1 m for the same head on a frozen JEPA latent: the recipe of SkyJEPA, a recent paper I reproduced
+  on the fixed wing.
+- The same network without physics reaches 14.3 m. Part of that gap may come from the mass and inertia, which only
+  the physics heads are given.
 - Inside an MPPI controller that picks the commands, the model gives 34% less airspeed error than the TECS autopilot
   (1.00 against 1.52 m/s), and all 40 aircraft keep flying at every sensor-noise level tested.
 
@@ -49,15 +50,16 @@ Data generation, training and the closed-loop test: [docs/RESULTS.md](docs/RESUL
 ## Limitations
 
 - Simulation only, and the flights come from my autopilot, which shapes the states the models see.
-- The physics head is given the true mass and inertia; the models without physics get no aircraft parameters.
+- The physics head is given the true mass and inertia; the models without physics get no aircraft parameters, so
+  they are not a clean control for it (a run of A0 with the aircraft parameters is next).
 - States are fully observed and the test noise is white.
 - In an earlier setting with turbulence, the gain from the physics head disappears ([results](results/README.md)).
 
 ## Credits
 
 Simulator model: University of Minnesota UAV Research Group (UMNUAV_sim_v4, BSD) with NASA Langley wind-tunnel
-tables. Method from SkyJEPA (Rao et al., arXiv 2606.23444), which I am not affiliated with and whose code I did not
-use; SIGReg from LeJEPA (Balestriero and LeCun, arXiv 2511.08544). Full list in
+tables. Method from SkyJEPA (Rao et al., arXiv 2606.23444), which I reproduced without its code (I am not one of its
+authors); SIGReg from LeJEPA (Balestriero and LeCun, arXiv 2511.08544). Full list in
 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
 
 Clément Dumeril, [clement.dumeril.net](https://clement.dumeril.net). MIT license ([LICENSE](LICENSE)); citation

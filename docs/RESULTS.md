@@ -86,7 +86,8 @@ alone does not tell which model can be flown.
 ## Limitations in detail
 
 - Simulation only, and the flights come from my autopilot, which shapes the states the models see.
-- The physics head is given the true mass and inertia; the MLP models get no aircraft parameters.
+- The physics head is given the true mass and inertia; the MLP models get no aircraft parameters, so A0 is not a
+  clean control for it. The comparison with SkyJEPA's frozen physics probe, which gets the same parameters, is.
 - The states are fully observed, which removes most of what self-supervision could add.
 - Noise in the tests is white; the closed-loop TECS has no sensor filter.
 - Earlier experiments in another setting (2 s of history, aircraft parameters as input, turbulence) are in

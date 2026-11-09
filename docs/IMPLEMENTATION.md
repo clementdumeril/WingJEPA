@@ -1,20 +1,31 @@
 # Implementation details
 
-Detail moved out of the top-level README. Results: [`../results/README.md`](../results/README.md).
+Detail moved out of the top-level README. Results: [RESULTS.md](RESULTS.md) (current setting) and
+[`../results/README.md`](../results/README.md) (earlier setting).
 
 ## Models
 
-About 22k parameters. A trains the encoder and predictor with a JEPA loss (latent prediction + SIGReg), then a
-decoder on the frozen latent; A0 trains the same network on the state error. C carries the body-axis state with the
-equations of motion and only adds corrective forces from the latent; C-JEPA puts it on a frozen JEPA trunk,
-C-direct trains everything on the state error. Code: `wingjepa/models/jepa.py`, `wingjepa/models/physics.py`.
+Every recipe uses the same network. JEPA trains the encoder and predictor with a JEPA loss (latent prediction +
+SIGReg), then a probe on the frozen latent; A0 trains the same network on the state error; the physics head carries
+the body-axis state with the equations of motion and learns the aerodynamic coefficients from the latent. Code:
+`wingjepa/models/jepa.py`, `wingjepa/models/physics.py`.
 
-- Input: 2 s of states (40 steps x 9 at 20 Hz: Va, alpha, beta, p, q, r, phi, theta, vertical speed) plus the known
-  mass and inertia (5 numbers).
-- Encoder: causal TCN, dilations 1, 2, 4, 8, 16 (63-step receptive field), latent of size 32.
-- Predictor: GRU cell driven by the 4 commands and the 3-axis wind estimate held at its last value, open loop.
-- Heads: MLP decoder (A, A0) or physics head (C): Newton-Euler with the true mass and inertia, RK4, prior forces plus
-  6 learned coefficient corrections, or (`--correction param`) the 38 prior coefficients changed once per flight.
+Current setting (SkyJEPA's), about 11k parameters (A0 10,713; C 11,542; D 15,052):
+
+- Input: 0.55 s of states (11 steps x 9 at 20 Hz: Va, alpha, beta, p, q, r, phi, theta, vertical speed). The MLP
+  models get no aircraft parameters; the physics heads use the true mass and inertia.
+- Encoder: causal TCN, dilations 1, 2, 4, latent of size 24. The 4 commands go through a small action TCN; the 3-axis
+  wind estimate is held at its last value.
+- Predictor: GRU, trained on 1 s open-loop rollouts, evaluated on 5 s.
+- Recipes: JEPA (frozen, MLP or physics probe), A0, B (A0 plus a penalty on the kinematic residuals of the predicted
+  states: attitude kinematics, vertical speed), one-step state loss, A0 on noisy inputs.
+- Heads: MLP; physics head C (Newton-Euler, RK4, 6 learned body-axis coefficients per step, no aerodynamic prior);
+  port-Hamiltonian head D ((J - R) e + G u, J skew, R positive semi-definite, |J|, |G|, |R| <= 10).
+
+Earlier setting, about 22k parameters: 2 s of states (40 steps) plus the mass and inertia (5 numbers) as input;
+dilations 1, 2, 4, 8, 16 (63-step receptive field), latent of size 32; rollouts of 1 to 5 s in training, up to 60 s
+in evaluation; physics head with a fitted aerodynamic prior plus 6 learned corrections, or (`--correction param`)
+the 38 prior coefficients changed once per flight.
 
 ## Components
 
@@ -25,7 +36,9 @@ C-direct trains everything on the state error. Code: `wingjepa/models/jepa.py`, 
 | World models | `wingjepa/models/jepa.py`, `scripts/train_a.py` | TCN encoder, GRU predictor, MLP decoder; training modes `jepa`, `jepa_ft`, `a0`, `joint`, `c_direct`, `c_jepa`; restart from checkpoint |
 | Physics head | `wingjepa/models/physics.py` | Newton-Euler with the true mass and inertia, prior forces plus learned corrections |
 | Priors | `scripts/fit_prior.py` | fitted by least squares, generic (published Ultra Stick 25e), wrong (30 % off), none |
-| Evaluation | `scripts/evaluate.py`, `position_error.py`, `diagnose.py` | open-loop rollouts up to 60 s, useful horizon, position error, two trivial baselines, true-wind ablation, latent probe |
+| Evaluation | `scripts/eval_skyjepa.py` | current setting: 5 s open-loop errors on both aircraft sets, noise sweep |
+| Closed loop | `scripts/closed_loop.py` | MPPI with each model against the TECS autopilot, sensor-noise sweep |
+| Evaluation, earlier setting | `scripts/evaluate.py`, `position_error.py`, `diagnose.py` | open-loop rollouts up to 60 s, useful horizon, position error, two trivial baselines, true-wind ablation, latent probe |
 | Results and figures | `scripts/collect_results.py`, `results_table.py`, `make_figures.py`, `make_trajectory_3d.py` | `results/summary.csv`, the tables and the figures in `docs/figures/` |
 | Cluster jobs | `cluster/` | data generation, training, smoke tests, figure export |
 
@@ -48,7 +61,10 @@ same commands as the turbulent ones with `configs/data_calm.yaml`.
 
 ## Figures
 
-All in [`figures/`](figures/). Redrawn from the committed results by
+All in [`figures/`](figures/). Current setting: [`paper_fig2.png`](figures/paper_fig2.png)
+(`scripts/plot_paper.py`) and [`closed_loop_noise.png`](figures/closed_loop_noise.png) (`scripts/plot_closed_loop.py`).
+
+Earlier setting, redrawn from the committed results by
 `python scripts/make_figures.py --results results --out docs/figures`:
 
 - [`calm_vs_turbulence.png`](figures/calm_vs_turbulence.png): median useful horizon, calm vs turbulent air.
@@ -61,7 +77,7 @@ Need the data and the trained models (`cluster/make_assets.sbatch`):
 [`rollout_extreme_aircraft.gif`](figures/rollout_extreme_aircraft.gif) (states over 20 s on an extreme aircraft),
 [`trajectory_3d_calm.gif`](figures/trajectory_3d_calm.gif) and the interactive
 [`trajectory_3d_calm.html`](figures/trajectory_3d_calm.html) (open locally).
-The overview figure is `figures/overview.svg`, rendered to PNG with headless Chrome at 2x.
+The overview figure `figures/overview.svg` (earlier setting) is rendered to PNG with headless Chrome at 2x.
 
 ## Credits
 

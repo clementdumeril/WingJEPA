@@ -9,8 +9,12 @@ the training flights and scored (R^2 per parameter) on the long test flights, tr
 separately. Two readers: ridge regression (linear) and a small MLP.
 
   latents   z_t of each model, from its own context window (H steps), as fed to its head
+  latents+1 latent z_{t+1} after the first predictor step, the first place where the past commands (action
+            encoder of the predictor) meet the state latent (the encoder alone reads the states only, unless
+            the run has --action-history 1)
   history   flattened window of the last L steps of the 9 states + 4 commands, L in --hist-s; tells how much a
-            longer context could help, independently of any model
+            longer context could help, independently of any model. Also with the 9 states only: tells how much
+            of the identification needs the commands
 
 Writes <out>.json and prints the R^2 tables. Usage:
   python scripts/probe_aircraft.py --data-dir data/data_calm --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0 \
@@ -29,7 +33,7 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import load_model  # noqa: E402
-from wingjepa.data.windows import N_CTRL, N_STATE, ORACLE, features, load_set, window_starts  # noqa: E402
+from wingjepa.data.windows import N_CTRL, N_STATE, ORACLE, aircraft_params, features, load_set, window_starts  # noqa: E402
 
 DT = 0.05
 TARGETS = ["mass", "Ixx", "Iyy", "Izz"] + ORACLE
@@ -105,6 +109,16 @@ def encode(model, xw, ac, batch=4096):
     return torch.cat(z).numpy().astype(np.float64)
 
 
+@torch.no_grad()
+def step1(model, seq, H, ac, batch=4096):
+    """Latent after the first predictor step, z_{t+1}: seq (n, H + 1, 16) normalized."""
+    z = []
+    for i in range(0, len(seq), batch):
+        a = None if ac is None else torch.from_numpy(ac[i:i + batch])
+        z.append(model.latents(torch.from_numpy(seq[i:i + batch]), H, True, a)[1][:, 0])
+    return torch.cat(z).numpy().astype(np.float64)
+
+
 def show(title, res):
     print(f"\n== {title}")
     for reader, gr in res.items():
@@ -139,28 +153,30 @@ def main():
     models = [(d, *load_model(d)) for d in a.models]
     Lmax = max([Lmax] + [cfg["H"] for _, _, cfg, _ in models])
     # same windows for every reader: the longest history ending at the same step
-    st_fit = pick(al_tr, Lmax, a.n_fit, rng)
-    st_te = pick(al_te, Lmax, 10 ** 9, rng, stride=int(1 / DT))
+    # one step more than the context: the command of the last context step, for the first predictor step
+    st_fit = pick(al_tr, Lmax + 1, a.n_fit, rng)
+    st_te = pick(al_te, Lmax + 1, 10 ** 9, rng, stride=int(1 / DT))
     g_te = {"avions_entrainement": ~test[st_te[:, 0]], "avions_de_test": test[st_te[:, 0]]}
     end = Lmax - 1
     print(f"fit windows {len(st_fit)}, test windows {g_te['avions_entrainement'].sum()} training-range, "
           f"{g_te['avions_de_test'].sum()} extreme", flush=True)
-    results = dict(targets=TARGETS, n_fit=len(st_fit), history={}, latents={})
+    results = dict(targets=TARGETS, n_fit=len(st_fit), history={}, latents={}, latents_after_step={})
 
     norm0 = models[0][3] if models else None
     for s in a.hist_s:
         L = int(round(s / DT))
-        def feats(X, st):
-            xw = windows(X, st, L, end)[:, :, :N_STATE + N_CTRL]
-            if norm0 is not None:
-                xw = (xw - norm0.mean[:N_STATE + N_CTRL]) / norm0.std[:N_STATE + N_CTRL]
-            return xw.reshape(len(st), -1).astype(np.float64)
-        F_fit = feats(Xtr, st_fit)
-        F_te = feats(Xte, st_te)
-        groups = {g: (F_te[m], Yte[st_te[m, 0]]) for g, m in g_te.items()}
-        res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
-        results["history"][f"{s:g}s"] = res
-        show(f"raw history, {s:g} s ({L} steps of 9 states + 4 commands)", res)
+        for nc, suffix, what in ((N_STATE + N_CTRL, "", "9 states + 4 commands"), (N_STATE, "_states", "9 states only")):
+            def feats(X, st):
+                xw = windows(X, st, L, end)[:, :, :nc]
+                if norm0 is not None:
+                    xw = (xw - norm0.mean[:nc]) / norm0.std[:nc]
+                return xw.reshape(len(st), -1).astype(np.float64)
+            F_fit = feats(Xtr, st_fit)
+            F_te = feats(Xte, st_te)
+            groups = {g: (F_te[m], Yte[st_te[m, 0]]) for g, m in g_te.items()}
+            res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
+            results["history"][f"{s:g}s{suffix}"] = res
+            show(f"raw history, {s:g} s ({L} steps of {what})", res)
 
     for d, model, cfg, norm in models:
         H = cfg["H"]
@@ -174,6 +190,16 @@ def main():
         res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
         results["latents"][Path(d).name] = res
         show(f"latent z_t of {Path(d).name} ({H} steps of context)", res)
+
+        def lat1(X, st, meta):
+            seq = norm(windows(X, st, H + 1, end + 1)).astype(np.float32)
+            ac = aircraft_params(meta, oracle=True)[st[:, 0]] if uses_ac else None
+            return step1(model, seq, H, ac)
+        F_fit, F_te = lat1(Xtr, st_fit, meta_tr), lat1(Xte, st_te, meta_te)
+        groups = {g: (F_te[m], Yte[st_te[m, 0]]) for g, m in g_te.items()}
+        res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
+        results["latents_after_step"][Path(d).name] = res
+        show(f"latent z_t+1 of {Path(d).name} (after the first predictor step, past commands included)", res)
 
     out = Path(a.out).with_suffix(".json")
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -90,7 +90,8 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
     ac = torch.from_numpy(P[f])
     z0 = model.encode(seq[:, :H], ac)
     U = model.future_inputs(seq, H, True)
-    corr, _ = head.correction(z0, seq[:, H - 1, :N_STATE], U[:, 0])
+    extra = ac[:, 5:5 + head.n_oracle] if head.n_oracle else None
+    corr, _ = head.correction(z0, seq[:, H - 1, :N_STATE], U[:, 0], extra)
     c = {k: torch.from_numpy(data[f, s, ch.index(k)].astype(np.float32)) for k in
          ["Va", "alpha", "beta", "p", "q", "r", "de_cmd", "da_cmd", "dr_cmd", "dt_cmd", "thrust",
           "Fx_aero", "Fy_aero", "Fz_aero", "Mx_aero", "My_aero", "Mz_aero", "Mx_prop", "My_prop", "Mz_prop"]}

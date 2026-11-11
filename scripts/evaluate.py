@@ -88,7 +88,7 @@ def attribution(model, norm, X, alive, data, ch, P, H, n=20000, seed=0):
     f, s = st[:, 0], st[:, 1] + H - 1                                   # last observed step
     seq = torch.from_numpy(norm(X[f[:, None], st[:, 1:2] + np.arange(H + 1)]))
     ac = torch.from_numpy(P[f])
-    z0 = model.encode(seq[:, :H], ac)
+    z0 = model.encode_head(seq[:, :H], ac)                             # z, and the context latent if any
     U = model.future_inputs(seq, H, True)
     extra = ac[:, 5:5 + head.n_oracle] if head.n_oracle else None
     corr, _ = head.correction(z0, seq[:, H - 1, :N_STATE], U[:, 0], extra)
@@ -129,7 +129,7 @@ def identification(model, norm, X, alive, P, meta, H, n=20000, seed=0):
     st = st[np.random.default_rng(seed).choice(len(st), min(n, len(st)), replace=False)]
     f = st[:, 0]
     seq = torch.from_numpy(norm(X[f[:, None], st[:, 1:2] + np.arange(H)]))
-    z0 = model.encode(seq, torch.from_numpy(P[f]))
+    z0 = model.encode_head(seq, torch.from_numpy(P[f]))
     dc = (head.correction(z0)[0] * head.coef_scale).numpy()
     c = head.coefficients().numpy()
     out, i = {}, 0

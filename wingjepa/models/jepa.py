@@ -169,27 +169,37 @@ class WorldModel(nn.Module):
     (same inputs and integration as the physics head, without the equations of motion: ResidualHead).
     action_history: the encoder also reads the past commands (1: second TCN, 2: joint TCN).
     target_window: length of the windows encoded as JEPA targets (default 0: H, the context length).
-    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi)."""
+    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi).
+    context_dim C > 0: context latent c (B, C) of the aircraft being flown, read once from the past states and
+    commands by a joint causal TCN (context_channels), given to the GRU at every step and to the head next to z.
+    In a JEPA, the GRU memory is the latent z itself, and the loss pins z_{t+k} to the encoding of the measured
+    state window, which holds no aircraft identity: there is nowhere to keep "this aircraft has a weak motor".
+    c is the target of no loss, so it is free to hold what predicting the future needs about the aircraft."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
                  n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free",
-                 param_bound=0.0, action_history=False, target_window=0, act_channels=None, n_oracle=0):
+                 param_bound=0.0, action_history=False, target_window=0, act_channels=None, n_oracle=0,
+                 context_dim=0, context_channels=(8, 8, 16)):
         super().__init__()
         self.target_window = target_window
         n_act = N_CTRL if action_history else 0
         self.n_past = N_STATE + n_act                                  # channels of seq the encoder reads
         self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act,
                                   joint=int(action_history) == 2)
-        self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim, act_channels, k, dilations)
+        self.context_dim = int(context_dim)
+        self.context_enc = (TCNEncoder(N_STATE, context_channels, k, dilations, self.context_dim, 0, N_CTRL,
+                                       joint=True) if self.context_dim else None)
+        self.predictor = GRUPredictor(N_CTRL + N_WIND + self.context_dim, z_dim, act_channels, k, dilations)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
+        zh = z_dim + self.context_dim                                  # what the head reads: z, and c if any
         if head == "mlp":
-            self.decoder = MLPDecoder(z_dim, dec_hidden)
+            self.decoder = MLPDecoder(zh, dec_hidden)
         elif head == "residual":
-            self.decoder = ResidualHead(z_dim, dec_hidden, out_scale)
+            self.decoder = ResidualHead(zh, dec_hidden, out_scale)
         else:
             from wingjepa.models.physics import PhysicsHead
-            self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub,
+            self.decoder = PhysicsHead(prior, norm.mean, norm.std, zh, dec_hidden, out_scale, n_sub,
                                        correction=correction, param_bound=param_bound, n_oracle=n_oracle)
 
     def ctx(self, ac):
@@ -201,6 +211,18 @@ class WorldModel(nn.Module):
     def encode(self, past, ac=None):
         """past : (B, H, 16) normalized window (states, commands, wind) -> z (B, D)."""
         return self.encoder(past[:, :, :self.n_past], self.ctx(ac))
+
+    def context_of(self, past):
+        """past : (B, H, 16) normalized window -> context latent c (B, C), or None without context."""
+        if self.context_enc is None:
+            return None
+        return self.context_enc(past[:, :, :N_STATE + N_CTRL])
+
+    def encode_head(self, past, ac=None):
+        """What the head reads at the last observed step: z, followed by c with the context latent."""
+        z = self.encode(past, ac)
+        c = self.context_of(past)
+        return z if c is None else torch.cat([z, c], -1)
 
     @staticmethod
     def future_inputs(seq, H, hold_wind=True):
@@ -218,7 +240,9 @@ class WorldModel(nn.Module):
         """seq : (B, H+T, 16) -> z_0 (B, D), predicted latents z_1..z_T (B, T, D), future inputs (B, T, 7)."""
         U = self.future_inputs(seq, H, hold_wind)
         z0 = self.encode(seq[:, :H], ac)
-        return z0, self.predictor.rollout(z0, self.predictor.inputs(seq, H, U)), U
+        c = self.context_of(seq[:, :H])
+        Ug = U if c is None else torch.cat([U, c[:, None].expand(-1, U.shape[1], -1)], -1)
+        return z0, self.predictor.rollout(z0, self.predictor.inputs(seq, H, Ug)), U
 
     def predict_latents(self, seq, H, hold_wind=True, ac=None):
         """seq : (B, H+T, 16) -> predicted latents (B, T, D) for steps t+1..t+T."""
@@ -226,6 +250,10 @@ class WorldModel(nn.Module):
 
     def head_states(self, z0, zs, U, seq, H, ac=None):
         """Normalized predicted states (B, T, 9) and, for the physics head, raw outputs of the correction."""
+        c = self.context_of(seq[:, :H])
+        if c is not None:
+            z0 = torch.cat([z0, c], -1)
+            zs = torch.cat([zs, c[:, None].expand(-1, zs.shape[1], -1)], -1)
         if self.head == "mlp":
             return self.decoder(zs), None
         zk = torch.cat([z0[:, None], zs[:, :-1]], 1)                 # latent at the start of each step
@@ -253,8 +281,10 @@ class WorldModel(nn.Module):
         return z.reshape(B, T, -1)
 
     def n_params(self):
-        return {k: sum(p.numel() for p in m.parameters())
-                for k, m in [("encodeur", self.encoder), ("predicteur", self.predictor), ("decodeur", self.decoder)]}
+        parts = [("encodeur", self.encoder), ("predicteur", self.predictor), ("decodeur", self.decoder)]
+        if self.context_enc is not None:
+            parts.append(("contexte", self.context_enc))
+        return {k: sum(p.numel() for p in m.parameters()) for k, m in parts}
 
 
 def model_from_config(cfg, prior=None):
@@ -273,4 +303,6 @@ def model_from_config(cfg, prior=None):
                       correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
                       action_history=int(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
                       act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None,
-                      n_oracle=8 if cfg.get("oracle_params") and head == "physics" else 0)
+                      n_oracle=8 if cfg.get("oracle_params") and head == "physics" else 0,
+                      context_dim=int(cfg.get("context_dim") or 0),
+                      context_channels=ints(cfg.get("context_channels"), (8, 8, 16)))

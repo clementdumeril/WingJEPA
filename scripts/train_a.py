@@ -197,6 +197,10 @@ def main():
     ap.add_argument("--action-encoder", type=int, default=0,
                     help="1: the predictor reads the commands through an action encoder (SkyJEPA's Enc_phi)")
     ap.add_argument("--act-channels", default="4,4,8", help="channels of the action encoder layers")
+    ap.add_argument("--context-dim", type=int, default=0,
+                    help="> 0: context latent of that size, read from the past states and commands, given to the "
+                         "GRU at every step and to the head; the target of no loss (aircraft identity)")
+    ap.add_argument("--context-channels", default="8,8,16", help="channels of the context encoder layers")
     ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
     ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
@@ -264,6 +268,8 @@ def main():
         ap.error("--prior is required for the c_direct and c_jepa modes")
     if a.mode == "mlp_direct" and a.ema > 0:
         ap.error("--ema needs a latent model (no encoder in the mlp_direct mode)")
+    if a.mode == "mlp_direct" and a.context_dim:
+        ap.error("--context-dim needs a latent model")
     a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
     trunk_cfg = None
     if a.mode == "c_jepa":
@@ -275,6 +281,8 @@ def main():
         a.action_history = trunk_cfg.get("action_history", 0)
         a.action_encoder = trunk_cfg.get("action_encoder", 0)
         a.act_channels = trunk_cfg.get("act_channels", a.act_channels)
+        a.context_dim = trunk_cfg.get("context_dim", 0)
+        a.context_channels = trunk_cfg.get("context_channels", a.context_channels)
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
@@ -303,6 +311,8 @@ def main():
         trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt", map_location="cpu"))
         model.encoder.load_state_dict(trunk.encoder.state_dict())
         model.predictor.load_state_dict(trunk.predictor.state_dict())
+        if model.context_enc is not None:
+            model.context_enc.load_state_dict(trunk.context_enc.state_dict())
     print(f"parameters: {model.n_params()} (total {sum(model.n_params().values())}); "
           f"encoder receptive field {getattr(model, 'encoder', model).receptive_field} steps for H = {a.H}",
           flush=True)
@@ -386,7 +396,8 @@ def main():
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
-                 lambda_phys=0.0, input_noise=0.0, oracle_params=0, head_kind="physics", mlp_hidden="50,50")
+                 lambda_phys=0.0, input_noise=0.0, oracle_params=0, head_kind="physics", mlp_hidden="50,50",
+                 context_dim=0, context_channels="8,8,16")
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
@@ -402,6 +413,7 @@ def main():
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
 
     trunk_params = (list(model.encoder.parameters()) + list(model.predictor.parameters())
+                    + (list(model.context_enc.parameters()) if model.context_enc is not None else [])
                     if getattr(model, "latent", True) else [])
     if a.mode in ("jepa", "jepa_ft"):
         def loss1(step):

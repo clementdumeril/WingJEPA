@@ -300,3 +300,36 @@ def test_residual_head_same_interface_as_the_physics_head():
     later = seq.clone()
     later[:, 11 + 5:, N_STATE:N_STATE + 4] += 1.0                    # commands from step 5 on
     torch.testing.assert_close(m.predict_states(later, 11)[0][:, :5], pred[:, :5])
+
+
+@pytest.mark.parametrize("head", ["mlp", "physics"])
+def test_context_latent_reads_the_past_only_and_is_no_jepa_target(head):
+    """Context latent c: read from the past states and commands only, fed to the GRU and the head; the JEPA
+    targets keep the size of z (c is the target of no loss)."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    cfg = dict(z_dim=24, norm=norm, H=11, channels="8,8,16", dilations="1,2,4", aircraft_input=0, action_encoder=1,
+               act_channels="4,4,8", head=head, seed=0, context_dim=8, context_channels="8,8,16")
+    m = model_from_config(cfg, prior=_prior_25e() if head == "physics" else None)
+    assert m.n_params()["contexte"] > 0
+    # physical values (identity normalizer): level flight near 18 m/s, small commands, half throttle
+    s0 = torch.tensor([18.0, 0.05, 0.01, 0.05, -0.02, 0.03, 0.2, 0.06, 0.0])
+    seq = torch.zeros(3, 11 + 20, 16)
+    seq[:, :, :N_STATE] = s0 + 0.01 * torch.randn(3, 31, N_STATE)
+    seq[:, :, N_STATE:N_STATE + 3] = 0.02 * torch.randn(3, 31, 3)
+    seq[:, :, N_STATE + 3] = 0.5
+    ac = torch.tensor([[6.8, 0.67, 0.89, 1.58, -0.76]]).repeat(3, 1)
+    z0, zs, U = m.latents(seq, 11)
+    assert z0.shape == (3, 24) and zs.shape == (3, 20, 24) and U.shape == (3, 20, 7)
+    assert m.target_latents(seq, 11).shape == (3, 20, 24)
+    assert m.encode_head(seq[:, :11]).shape == (3, 32)
+    pred = m.predict_states(seq, 11, ac=ac)[0]
+    assert pred.shape == (3, 20, N_STATE) and torch.isfinite(pred).all()
+    fut = seq.clone()
+    fut[:, 11:, :N_STATE] += 0.1                                      # future states: never read
+    torch.testing.assert_close(m.context_of(fut[:, :11]), m.context_of(seq[:, :11]))
+    torch.testing.assert_close(m.predict_states(fut, 11, ac=ac)[0], pred)
+    past_cmd = seq.clone()
+    past_cmd[:, :10, N_STATE:N_STATE + 3] += 0.1                      # past commands: change c, hence the rollout
+    assert not torch.allclose(m.context_of(past_cmd[:, :11]), m.context_of(seq[:, :11]))
+    assert not torch.allclose(m.latents(past_cmd, 11)[1], zs)

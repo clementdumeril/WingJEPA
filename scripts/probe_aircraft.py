@@ -160,7 +160,7 @@ def main():
     end = Lmax - 1
     print(f"fit windows {len(st_fit)}, test windows {g_te['avions_entrainement'].sum()} training-range, "
           f"{g_te['avions_de_test'].sum()} extreme", flush=True)
-    results = dict(targets=TARGETS, n_fit=len(st_fit), history={}, latents={}, latents_after_step={})
+    results = dict(targets=TARGETS, n_fit=len(st_fit), history={}, latents={}, latents_after_step={}, context={})
 
     norm0 = models[0][3] if models else None
     for s in a.hist_s:
@@ -203,6 +203,19 @@ def main():
         res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
         results["latents_after_step"][Path(d).name] = res
         show(f"latent z_t+1 of {Path(d).name} (after the first predictor step, past commands included)", res)
+
+        if getattr(model, "context_enc", None) is not None:          # context latent c, read from the same window
+            def ctx(X, st):
+                xw = norm(windows(X, st, H, end)).astype(np.float32)
+                with torch.no_grad():
+                    c = [model.context_of(torch.from_numpy(xw[i:i + 4096])) for i in range(0, len(xw), 4096)]
+                return torch.cat(c).numpy().astype(np.float64)
+            F_fit, F_te = ctx(Xtr, st_fit), ctx(Xte, st_te)
+            groups = {g: (F_te[m], Yte[st_te[m, 0]]) for g, m in g_te.items()}
+            res = score(F_fit, Ytr[st_fit[:, 0]], groups, a.steps)
+            results["context"][Path(d).name] = res
+            show(f"context latent c of {Path(d).name} ({model.context_dim} values, {H} steps of states and commands)",
+                 res)
 
     out = Path(a.out).with_suffix(".json")
     out.parent.mkdir(parents=True, exist_ok=True)

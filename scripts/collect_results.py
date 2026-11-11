@@ -30,6 +30,7 @@ def summarize(run):
     prior = (cfg.get("prior") or {}).get("name", "")
     row = dict(run=run.name, mode=cfg["mode"], seed=cfg["seed"], history_steps=cfg["H"],
                aircraft_input=int(bool(cfg.get("aircraft_input"))), action_history=int(cfg.get("action_history") or 0),
+               context_dim=int(cfg.get("context_dim") or 0),
                target_window=cfg.get("target_window", 0), action_encoder=int(bool(cfg.get("action_encoder"))),
                head=cfg.get("head", "mlp"), prior=prior,
                correction=cfg.get("correction", "free") if cfg.get("head") == "physics" else "",

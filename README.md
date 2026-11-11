@@ -1,5 +1,10 @@
 # WingJEPA: a learned world model of a fixed-wing drone, with physics inside
 
+![Model architecture: TCN state encoder and action encoder, GRU predictor, JEPA target branch used in training, and the MLP and physics readout heads](docs/figures/architecture.png)
+
+*Blue: the world-model trunk (encoder, action encoder, GRU predictor). Orange: the JEPA target, used only in training.
+Green and gray: the readout heads. In flight only the trunk and one head run, restarted from the last measurement.*
+
 ![Position error vs prediction time on training-range and extreme aircraft, and 1 s state error vs observation noise, for seven ways of training the same network](docs/figures/paper_fig2.png)
 
 *Open-loop prediction on unseen flights: the physics head trained end to end (pink) has the lowest position error on

@@ -100,7 +100,7 @@ def main():
         for i, k in enumerate(STATE):
             r = [np.sqrt(np.mean((pred[:, int(t / DT) - 1, i] - true[:, int(t / DT) - 1, i]) ** 2)) / std[i] for t in hor]
             print(f"      {k:8s} " + "".join(f"{v:9.3f}" for v in r))
-        pr = probe_present_state(model, norm, Xtr, atr, Ptr, tr, va, H)
+        pr = probe_present_state(model, norm, Xtr, atr, Ptr, tr, va, H) if getattr(model, "latent", True) else None
         print(f"      probe (present state read from z(t), normalized error, 0 = perfect, 1 = nothing): {pr}")
         json.dump(dict(probe=pr, data_dir=Path(a.data_dir).name), open(Path(d) / "probe.json", "w"), indent=1)
 

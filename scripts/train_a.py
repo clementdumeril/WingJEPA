@@ -6,6 +6,9 @@
   --mode jepa_ft : JEPA as pre-training: stage 1 as in jepa, then stage 2 fine-tunes the whole network
                    (encoder, predictor, decoder) on the state error, at peak learning rate --ft-lr.
   --mode joint   : JEPA + SIGReg + state error together, decoder learned at the same time (not frozen).
+  --mode mlp_direct: plain MLP dynamics model (Nagabandi et al. 2018, models/mlp_direct.py): flattened window of
+                   the last H states and commands + next command and wind -> state increment, rolled out
+                   autoregressively; same loss, optimizer, schedule and data as a0. Widths: --mlp-hidden.
   --mode c_direct: like a0, with the physics head (--prior) instead of the MLP decoder; loss = state
                    error + --lambda-res * size of the learned correction (APHYNITY idea).
   --lambda-phys L (a0): physics in the loss instead of the architecture (Pred + Phys Reg in SkyJEPA): the MLP
@@ -26,8 +29,9 @@
 --correction porth (c_direct, c_jepa): port-Hamiltonian head, the learned forces and moments are
                    (J - R) e + G u with J skew, R >= 0 and e the velocities: they cannot create energy, only the
                    commands bring it in (models/physics.py).
---action-history 1: the encoder also reads the commands of the past 2 s (second TCN, as in SkyJEPA); a
-                   c_jepa run takes this from its trunk.
+--action-history 1: the encoder also reads the past commands (second TCN, merged at the output layer);
+                   2: one joint TCN over the past states and commands, mixed from the first layer. Both go
+                   beyond SkyJEPA, whose state encoder reads the states only. A c_jepa run takes this from its trunk.
 --target-window Ht (jepa, joint): the JEPA targets encode windows of the last Ht steps instead of H, so that
                    they share fewer steps with the context window.
 --action-encoder 1: as in SkyJEPA (eq. 7-8), the predictor receives at each step the encoding of the
@@ -180,13 +184,14 @@ def main():
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", default="train")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--mode", choices=["jepa", "jepa_ft", "a0", "joint", "c_direct", "c_jepa"], default="jepa")
+    ap.add_argument("--mode", choices=["jepa", "jepa_ft", "a0", "joint", "c_direct", "c_jepa", "mlp_direct"],
+                    default="jepa")
     ap.add_argument("--H", type=int, default=40, help="past steps (0.05 s)")
     ap.add_argument("--channels", default="16,16,32,32,32", help="channels of the encoder layers")
     ap.add_argument("--dilations", default="1,2,4,8,16", help="receptive field = 1 + 2 * sum")
     ap.add_argument("--aircraft-input", type=int, default=1, help="mass and inertias as input (1) or not (0)")
     ap.add_argument("--action-history", type=int, default=0,
-                    help="1: the encoder also reads the past commands (second TCN, as in SkyJEPA)")
+                    help="1: the encoder also reads the past commands (second TCN); 2: joint TCN over states and commands")
     ap.add_argument("--target-window", type=int, default=0,
                     help="steps of the windows encoded as JEPA targets (default 0: --H)")
     ap.add_argument("--action-encoder", type=int, default=0,
@@ -215,8 +220,13 @@ def main():
                     help="constrained head: largest change of a coefficient, in units of its scale (0 = no bound)")
     ap.add_argument("--max-skip-streak", type=int, default=500,
                     help="stop when this many batches in a row have a non-finite loss or gradient")
+    ap.add_argument("--head-kind", choices=["physics", "residual"], default="physics",
+                    help="c_direct, c_jepa: physics head, or the residual MLP control (same inputs and integration, "
+                         "no equations of motion, no prior)")
     ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
     ap.add_argument("--compile", type=int, default=0, help="1: compile the physics-head step (torch.compile)")
+    ap.add_argument("--mlp-hidden", default="50,50",
+                    help="hidden widths of the mlp_direct model (50,50: about the a0 size at H = 11)")
     ap.add_argument("--z-dim", type=int, default=32)
     ap.add_argument("--steps1", type=int, default=20000)
     ap.add_argument("--steps2", type=int, default=20000)
@@ -248,10 +258,12 @@ def main():
     dev = torch.device(a.device)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    physics = a.mode in ("c_direct", "c_jepa")
-    a.head = "physics" if physics else "mlp"
+    physics = a.mode in ("c_direct", "c_jepa") and a.head_kind == "physics"
+    a.head = "physics" if physics else ("residual" if a.mode in ("c_direct", "c_jepa") else "mlp")
     if physics and not a.prior:
         ap.error("--prior is required for the c_direct and c_jepa modes")
+    if a.mode == "mlp_direct" and a.ema > 0:
+        ap.error("--ema needs a latent model (no encoder in the mlp_direct mode)")
     a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
     trunk_cfg = None
     if a.mode == "c_jepa":
@@ -292,7 +304,8 @@ def main():
         model.encoder.load_state_dict(trunk.encoder.state_dict())
         model.predictor.load_state_dict(trunk.predictor.state_dict())
     print(f"parameters: {model.n_params()} (total {sum(model.n_params().values())}); "
-          f"encoder receptive field {model.encoder.receptive_field} steps for H = {a.H}", flush=True)
+          f"encoder receptive field {getattr(model, 'encoder', model).receptive_field} steps for H = {a.H}",
+          flush=True)
     H = a.H
 
     def T_at(step, steps):
@@ -300,19 +313,27 @@ def main():
         x = min(1.0, step / max(1, a.curriculum_frac * steps))
         return int(round(a.T + (T_max - a.T) * x))
 
-    def nxt(T):
+    def nxt(T, keep_clean=False):
+        """Batch of windows (B, H+T, 16) and aircraft parameters. keep_clean: also the windows without the
+        noise augmentation (JEPA stage: the targets encode the clean future, as in a denoising JEPA)."""
         rows = S_tr.sample_rows(a.batch)
         seq = torch.from_numpy(S_tr.gather(rows)[:, :H + T]).to(dev)
+        clean = seq
         if a.input_noise > 0:                     # noise augmentation of the past states only
+            clean = seq.clone()
             sig = a.input_noise * torch.rand(seq.shape[0], 1, 1, device=dev)      # level drawn per window
             seq[:, :H, :N_STATE] += sig * torch.randn_like(seq[:, :H, :N_STATE])
-        return seq, torch.from_numpy(S_tr.aircraft(rows)).to(dev)
+        ac = torch.from_numpy(S_tr.aircraft(rows)).to(dev)
+        return (seq, ac, clean) if keep_clean else (seq, ac)
 
     def state_err(pred, seq):
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
 
     def state_loss(seq, ac, frozen=False):
         """Normalized state error and size of the physics correction (0 for the MLP)."""
+        if not getattr(model, "latent", True):                       # mlp_direct: direct state rollout
+            pred = model.predict_states(seq, H, True, ac)[0]
+            return state_err(pred, seq), pred.new_zeros(()), pred
         with torch.set_grad_enabled(torch.is_grad_enabled() and not frozen):
             z0, zs, U = model.latents(seq, H, True, ac)
         pred, raw = model.head_states(z0, zs, U, seq, H, ac)
@@ -365,25 +386,27 @@ def main():
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
-                 lambda_phys=0.0, input_noise=0.0, oracle_params=0)
+                 lambda_phys=0.0, input_noise=0.0, oracle_params=0, head_kind="physics", mlp_hidden="50,50")
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
 
-    def jepa_loss(seq, ac):
+    def jepa_loss(seq, ac, clean=None):
+        """clean: windows without the noise augmentation, encoded as targets (default seq itself)."""
         z0, zp, U = model.latents(seq, H, True, ac)
-        zt = model.target_latents(seq, H, ac, encoder=target_enc)
+        zt = model.target_latents(seq if clean is None else clean, H, ac, encoder=target_enc)
         pred = ((zp - zt) ** 2).mean()
         # SIGReg on the predicted latents, averaged over time: estimated on a few randomly drawn steps
         ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
         reg = torch.stack([sigreg(zp[:, k], n_proj=a.sigreg_proj) for k in ks]).mean()
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
 
-    trunk_params = list(model.encoder.parameters()) + list(model.predictor.parameters())
+    trunk_params = (list(model.encoder.parameters()) + list(model.predictor.parameters())
+                    if getattr(model, "latent", True) else [])
     if a.mode in ("jepa", "jepa_ft"):
         def loss1(step):
             T = T_at(step, a.steps1)
-            loss, _, parts = jepa_loss(*nxt(T))
+            loss, _, parts = jepa_loss(*nxt(T, keep_clean=True))
             return loss, dict(parts, T=T)
 
         def val1():
@@ -438,7 +461,7 @@ def main():
         best = run_stage("tete_physique", list(model.decoder.parameters()), loss_cj, val_state, a.steps2,
                          a, log, ckpt, resume)
         summary = dict(best_val_state=best)
-    else:                                                             # a0, c_direct
+    else:                                                             # a0, c_direct, mlp_direct
         steps = a.steps1 + a.steps2
 
         def loss_direct(step):

@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,13 +84,16 @@ def test_v1_run_config_still_loads():
     assert pred.shape == (4, 20, N_STATE) and extra is None
 
 
-def test_action_history_encoder_sees_only_the_commands_already_applied():
+@pytest.mark.parametrize("action_history", [1, 2])
+def test_action_history_encoder_sees_only_the_commands_already_applied(action_history):
     """With --action-history the latent depends on the command of step H-2 (it produced the state of step
-    H-1) but not on the one of step H-1 (applied after the last state, given to the predictor instead)."""
+    H-1) but not on the one of step H-1 (applied after the last state, given to the predictor instead).
+    2 (joint TCN): no second TCN, the state TCN reads 9 + 4 channels."""
     torch.manual_seed(0)
     norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
     m = model_from_config(dict(z_dim=32, norm=norm, H=40, channels="16,16,32,32,32", dilations="1,2,4,8,16",
-                               aircraft_input=1, action_history=1, seed=0))
+                               aircraft_input=1, action_history=action_history, seed=0))
+    assert m.encoder.joint == (action_history == 2) and hasattr(m.encoder, "act_tcn") == (action_history == 1)
     H, ac = 40, torch.full((2, 5), 1.0) * m.ac_nominal
     seq = torch.randn(2, H + 20, 16)
     z = m.encode(seq[:, :H], ac)
@@ -150,6 +154,42 @@ def test_action_encoder_feeds_the_predictor():
     cmds[:, :, N_STATE:N_STATE + 4] += 1.0
     torch.testing.assert_close(m.encode(cmds[:, :H]), m.encode(seq[:, :H]))
     torch.testing.assert_close(m.target_latents(cmds, H), m.target_latents(seq, H))
+
+
+def test_mlp_direct_shapes_causality_and_size():
+    """Plain MLP baseline: rebuilt from its config, (B, T, 9) predictions that start from the last state, the
+    prediction of step t+k+1 depends on the commands applied up to step t+k only and never on the future
+    states; parameter count (13 H + 7 + 1) h1 + (h1 + 1) h2 + 9 (h2 + 1)."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    m = model_from_config(dict(mode="mlp_direct", head="mlp", z_dim=24, norm=norm, H=11, mlp_hidden="50,50",
+                               aircraft_input=0, seed=0))
+    H, T, h1, h2 = 11, 20, 50, 50
+    n = m.n_params()["mlp"]
+    print(f"mlp_direct parameters: {n}")
+    assert not m.latent and n == (13 * H + 7 + 1) * h1 + (h1 + 1) * h2 + N_STATE * (h2 + 1) == 10559
+    seq = torch.randn(2, H + T, 16)
+    pred, extra = m.predict_states(seq, H)
+    assert pred.shape == (2, T, N_STATE) and extra is None
+    torch.testing.assert_close(pred, seq[:, H - 1:H, :N_STATE].expand(-1, T, -1))     # untrained: constant state
+    with torch.no_grad():
+        torch.nn.init.normal_(m.net[-1].weight, std=0.1)
+    pred, _ = m.predict_states(seq, H)
+    late = seq.clone()
+    late[:, H - 1 + 5, N_STATE:N_STATE + 4] += 1.0                     # command applied from t+5 to t+6
+    pl = m.predict_states(late, H)[0]
+    torch.testing.assert_close(pl[:, :5], pred[:, :5])
+    assert not torch.allclose(pl[:, 5], pred[:, 5])
+    past = seq.clone()
+    past[:, 0, N_STATE:N_STATE + 4] += 1.0                             # oldest command of the window
+    assert not torch.allclose(m.predict_states(past, H)[0][:, 0], pred[:, 0])
+    fut = seq.clone()
+    fut[:, H:, :N_STATE] = 0.0                                         # future states are never read
+    fut[:, H:, N_STATE + 4:] += 1.0                                    # nor the future wind, held by default
+    torch.testing.assert_close(m.predict_states(fut, H)[0], pred)
+    wind = m.predict_states(fut, H, hold_wind=False)[0]
+    torch.testing.assert_close(wind[:, 0], pred[:, 0])
+    assert not torch.allclose(wind[:, 1], pred[:, 1])
 
 
 def _prior_25e():
@@ -244,3 +284,19 @@ def test_constrained_head_bound():
         assert head.correction(z)[0].abs().max() <= 1.0
         head.net[-1].bias.fill_(1e-3)
         torch.testing.assert_close(head.correction(z)[0], torch.full((4, 38), 1e-4), rtol=1e-4, atol=0)
+
+
+def test_residual_head_same_interface_as_the_physics_head():
+    """Residual control: starts from the measured state, rolls step by step, ignores the aircraft parameters."""
+    torch.manual_seed(0)
+    norm = Normalizer(np.zeros(16), np.ones(16)).to_dict()
+    m = model_from_config(dict(z_dim=24, norm=norm, H=11, channels="8,8,16", dilations="1,2,4", aircraft_input=0,
+                               action_encoder=1, act_channels="4,4,8", head="residual", seed=0))
+    seq = torch.randn(3, 11 + 20, 16)
+    pred, raw = m.predict_states(seq, 11, ac=torch.ones(3, 13))
+    assert pred.shape == (3, 20, N_STATE) and raw.shape == (3, 20, N_STATE)
+    pred2, _ = m.predict_states(seq, 11, ac=None)
+    torch.testing.assert_close(pred, pred2)
+    later = seq.clone()
+    later[:, 11 + 5:, N_STATE:N_STATE + 4] += 1.0                    # commands from step 5 on
+    torch.testing.assert_close(m.predict_states(later, 11)[0][:, :5], pred[:, :5])

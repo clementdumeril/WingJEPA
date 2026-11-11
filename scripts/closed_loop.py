@@ -12,14 +12,21 @@ MPPI (model-predictive path integral control), every 50 ms:
   - cost: altitude (integrated predicted climb rate), climb rate towards a target, airspeed, bank, sideslip,
     envelope penalties (angle of attack, speed, attitude) and command rate;
   - new nominal = softmax-weighted mean of the candidates; its first command is applied, the rest shifted.
-The physics head receives the true mass and inertia of the aircraft, as in training and evaluation.
+The physics head receives the true mass and inertia of the aircraft, as in training and evaluation;
+--nominal-params 1 gives every model the nominal ones instead (the aircraft flown keeps its true ones).
 
-Sensor noise --noise s: Gaussian noise of s * std (training statistics) on the 9 measured states, for every
-controller (TECS included); altitude itself is measured without noise.
+Sensor noise --noise s: noise of level s on the 9 measured states, for every controller (TECS included), same
+realization for all (fixed seed); altitude itself is measured without noise. --noise-kind (wingjepa/data/noise.py):
+  gauss   (default): i.i.d. Gaussian of s * std (training statistics), as in training with --input-noise;
+  bias   : constant offset of std s * std per flight and state, over the whole flight (warm-up included);
+  colored: AR(1) per state, marginal std s * std, coefficient --noise-rho per 50 ms step;
+  dropout: s = probability that a measurement is lost (per step and state), the last received value is held.
+The settings are written in args.sensor_noise of the output.
 
 Usage (cluster, GPU):
   python scripts/closed_loop.py --controllers tecs runs/c_direct_calm_sky_nul_s0 runs/c_jepa_calm_sky_nul_s0 \
-      runs/a0_calm_sky_s0 --out runs/closed_loop/calm_noise0.json [--noise 0.2] [--turbulence moderate --gust 3]
+      runs/a0_calm_sky_s0 --out runs/closed_loop/calm_noise0.json [--noise 0.2] [--turbulence moderate --gust 3] \
+      [--noise-kind colored --noise-rho 0.95]
 Writes <out>.json (metrics per controller and aircraft group) and <out>_traces.npz (time series).
 """
 import argparse
@@ -36,6 +43,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import load_model  # noqa: E402
 from generate_flights import sample_overrides  # noqa: E402
+from wingjepa.data.noise import KINDS, SensorNoise  # noqa: E402
+from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_CTRL, N_STATE  # noqa: E402
 from wingjepa.sim import ultrastick as us  # noqa: E402
 from wingjepa.sim.pilot import TECS, lateral  # noqa: E402
@@ -62,7 +71,8 @@ def references(rng, n, K, h0, V0, seg_s=10.0):
 class Flights:
     """Batch of simulated aircraft, stepped at 20 Hz (RK4 at cfg sim.dt inside)."""
 
-    def __init__(self, cfg, n_train, n_test, seed, duration, turbulence, gust, noise, std_state):
+    def __init__(self, cfg, n_train, n_test, seed, duration, turbulence, gust, noise, std_state,
+                 noise_kind="gauss", noise_rho=0.95):
         self.cfg, sim = cfg, cfg["sim"]
         p = us.load_config(cfg["aircraft"]["config"])
         self.p, self.lim = p, sim["limits"]
@@ -85,8 +95,7 @@ class Flights:
         wcfg = dict(cfg["wind"], turbulence_probs={k: float(k == turbulence) for k in LEVELS},
                     gust_amplitude_max=float(gust))
         self.wind = Wind(np.random.default_rng(seed + 1), n, wcfg, sim["warmup_s"] + duration + 1)
-        self.rng_noise = np.random.default_rng(seed + 2)
-        self.noise, self.std_state = noise, std_state
+        self.sensor = SensorNoise(noise_kind, noise, std_state, np.random.default_rng(seed + 2), noise_rho)
         self.sub = int(round(DT / sim["dt"]))
         self.dt_sim = sim["dt"]
         self.alive = ok.copy()
@@ -113,7 +122,7 @@ class Flights:
         we = self.wind_est
         w = np.stack([we[:, 0] * np.cos(psi) + we[:, 1] * np.sin(psi),
                       -we[:, 0] * np.sin(psi) + we[:, 1] * np.cos(psi), we[:, 2]], 1)
-        s_meas = s + self.noise * self.std_state * self.rng_noise.standard_normal(s.shape)
+        s_meas = self.sensor(s)
         return s, s_meas, w, h.copy()
 
     def step(self, cmd, thr):
@@ -187,7 +196,8 @@ class MPPIController:
         self.hi = torch.tensor(list(fl.p["act_max"]) + [1.0], device=dev, dtype=torch.float32)
         self.sigma = torch.tensor(a.sigma, device=dev, dtype=torch.float32)
         self.rho, self.lam, self.w_du = a.smooth, a.lam, a.w_du
-        self.ac = torch.from_numpy(fl.params).to(dev).repeat_interleave(self.N, 0)
+        P = nominal_params(fl.params) if a.nominal_params else fl.params
+        self.ac = torch.from_numpy(P).to(dev).repeat_interleave(self.N, 0)
         self.gen = torch.Generator(device=dev).manual_seed(a.seed + 3)
         u0 = np.c_[fl.cmd0, fl.thr0].astype(np.float32)
         self.U = torch.from_numpy(u0).to(dev)[:, None].repeat(1, self.T, 1)        # nominal (n, T, 4)
@@ -240,7 +250,8 @@ class MPPIController:
 
 
 def run(name, a, cfg, std_state, H_hist, dev):
-    fl = Flights(cfg, a.n_train, a.n_test, a.seed, a.duration, a.turbulence, a.gust, a.noise, std_state)
+    fl = Flights(cfg, a.n_train, a.n_test, a.seed, a.duration, a.turbulence, a.gust, a.noise, std_state,
+                 a.noise_kind, a.noise_rho)
     warm_ctrl = TecsController(fl, cfg)
     ctrl = warm_ctrl if name == "tecs" else MPPIController(name, fl, a, dev)
     n, K = fl.n, fl.K
@@ -306,7 +317,12 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--turbulence", default="none", choices=LEVELS)
     ap.add_argument("--gust", type=float, default=0.0, help="max gust amplitude per axis (m/s)")
-    ap.add_argument("--noise", type=float, default=0.0, help="sensor noise, in std of each state")
+    ap.add_argument("--noise", type=float, default=0.0,
+                    help="sensor noise level, in std of each state (dropout: probability of a lost measurement)")
+    ap.add_argument("--nominal-params", type=int, default=0,
+                    help="1: the models get the nominal mass and inertia, not the true ones of each aircraft")
+    ap.add_argument("--noise-kind", default="gauss", choices=KINDS, help="sensor noise model (wingjepa/data/noise.py)")
+    ap.add_argument("--noise-rho", type=float, default=0.95, help="AR(1) coefficient per step of the colored noise")
     ap.add_argument("--horizon", type=int, default=30, help="MPPI horizon (steps of 50 ms)")
     ap.add_argument("--samples", type=int, default=256)
     ap.add_argument("--sigma", type=float, nargs=4, default=[0.04, 0.04, 0.03, 0.08],
@@ -327,6 +343,7 @@ def main():
     H_hist = max([c["H"] for c in cfgs] + [1])
 
     results, traces = dict(args=vars(a)), {}
+    results["args"]["sensor_noise"] = SensorNoise(a.noise_kind, a.noise, std_state, None, a.noise_rho).describe()
     for c in a.controllers:
         t0 = time.time()
         print(f"== {c}", flush=True)

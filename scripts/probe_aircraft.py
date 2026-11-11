@@ -11,7 +11,7 @@ separately. Two readers: ridge regression (linear) and a small MLP.
   latents   z_t of each model, from its own context window (H steps), as fed to its head
   latents+1 latent z_{t+1} after the first predictor step, the first place where the past commands (action
             encoder of the predictor) meet the state latent (the encoder alone reads the states only, unless
-            the run has --action-history 1)
+            the run has --action-history 1 or 2)
   history   flattened window of the last L steps of the 9 states + 4 commands, L in --hist-s; tells how much a
             longer context could help, independently of any model. Also with the 9 states only: tells how much
             of the identification needs the commands
@@ -179,6 +179,9 @@ def main():
             show(f"raw history, {s:g} s ({L} steps of {what})", res)
 
     for d, model, cfg, norm in models:
+        if not getattr(model, "latent", True):                       # mlp_direct: no latent to probe
+            print(f"\n== {Path(d).name}: no latent, skipped")
+            continue
         H = cfg["H"]
         uses_ac = bool(cfg.get("aircraft_input"))
         def lat(X, st, meta):

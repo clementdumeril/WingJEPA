@@ -10,12 +10,22 @@ For each model and each aircraft group of the set:
   - temporal straightening (Fig. 7): mean cosine similarity of consecutive latent velocities z_{k+1} - z_k of the
     predicted latent trajectory, per rollout (mean and quartiles);
   - observation-noise robustness (Fig. 9): Gaussian noise of sigma * std added to the past states only, median over
-    rollouts of the normalized state RMSE over the first --noise-horizon-s seconds.
+    rollouts of the normalized state RMSE over the first --noise-horizon-s seconds. --noise-kinds adds noise kinds
+    not seen in training (wingjepa/data/noise.py), on the same rollouts and levels: bias (constant offset per
+    rollout and state), colored (AR(1), coefficient --noise-rho per step) and dropout (the level is then the
+    probability that a measurement is lost, sample and hold). The Gaussian test is always run (key
+    noise_robustness); the other kinds go to noise_robustness_<kind>, their settings to noise_settings (both absent
+    by default, so the default output is unchanged). Each kind has its own fixed seed, and the same realization
+    is used for every model and level.
 Kinematics as in scripts/position_error.py: heading integrated from the predicted rates, air velocity rotated to
 north-east-up plus the last wind estimate held; truth from the simulator (north, east, altitude, heading).
 
-Writes <model_dir>/eval_skyjepa_<set>.json. Usage:
-  python scripts/eval_skyjepa.py --data-dir <data_dir> --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0
+--nominal-params 1: every model is given the NOMINAL mass and inertia (and nominal oracle factors) instead of
+the true ones of each flight: tells how much a physics head relies on knowing them (output suffix _nominal).
+
+Writes <model_dir>/eval_skyjepa_<set>[_nominal].json. Usage:
+  python scripts/eval_skyjepa.py --data-dir <data_dir> --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0 \
+      [--noise-kinds gauss bias colored dropout --noise-rho 0.95]
 """
 import argparse
 import json
@@ -30,6 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, load_model, predict  # noqa: E402
 from position_error import starts  # noqa: E402
+from wingjepa.data.noise import KINDS, corrupt, draw  # noqa: E402
+from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_STATE, STATE, aircraft_params, features, load_set, split_mask  # noqa: E402
 
 DEG = 180 / np.pi
@@ -98,15 +110,26 @@ def main():
     ap.add_argument("--horizon-s", type=float, default=5.0, help="rollout length of the curves")
     ap.add_argument("--stride-s", type=float, default=5.0)
     ap.add_argument("--noise-horizon-s", type=float, default=1.0)
+    ap.add_argument("--noise-kinds", nargs="+", default=["gauss"], choices=KINDS,
+                    help="noise kinds of the robustness test (gauss is always run)")
+    ap.add_argument("--noise-rho", type=float, default=0.95, help="AR(1) coefficient per step of the colored noise")
+    ap.add_argument("--nominal-params", type=int, default=0,
+                    help="1: nominal mass and inertia for every flight instead of the true ones")
     ap.add_argument("--max-rollouts", type=int, default=2000)
     ap.add_argument("--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "4")))
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     rng = np.random.default_rng(0)
+    kinds = [k for k in KINDS if k != "gauss" and k in a.noise_kinds]
+    rng_kind = {k: np.random.default_rng(1 + KINDS.index(k)) for k in kinds}     # apart from rng: gauss unchanged
+    settings = dict(levels="std of each state; dropout: probability of a lost measurement",
+                    kinds=["gauss"] + kinds, **({"rho": a.noise_rho} if "colored" in kinds else {}))
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
     P = aircraft_params(meta, oracle=True)          # columns 5: only read by an oracle physics head
+    if a.nominal_params:
+        P = nominal_params(P)
     raw = {k: data[:, :, ch.index(k)].astype(np.float64)
            for k in ("psi", "north", "east", "h", "wind_n_est", "wind_e_est")}
     if (meta["split"] == "train").any():
@@ -133,7 +156,9 @@ def main():
         psi0 = raw["psi"][f, s0]
         pos0 = np.stack([raw["north"][f, s0], raw["east"][f, s0], raw["h"][f, s0]], -1)
         wind = np.stack([raw["wind_n_est"][f, s0], raw["wind_e_est"][f, s0]], -1)
-        noise = rng.standard_normal(seq[:, :Hm, :N_STATE].shape).astype(np.float32)
+        past = seq[:, :Hm, :N_STATE]                                       # measured past, longest history
+        reals = {"gauss": rng.standard_normal(past.shape).astype(np.float32)}
+        reals.update({k: draw(k, rng_kind[k], past.shape, a.noise_rho) for k in kinds})
         print(f"\n== {gname}: {len(st)} rollouts of {a.horizon_s:g} s")
 
         def physical(pred):
@@ -152,15 +177,17 @@ def main():
             tf = np.stack([predict(model, norm, sq[:, k:k + H + 1], H, True, ac)[:, 0] for k in range(L)], 1)
             e_tf = norm_err(tf.astype(np.float64), true, std)
             pos_e, vel_e, att_e = physical(pred)
-            straight = straightening(model, norm, sq, H, ac)
+            straight = straightening(model, norm, sq, H, ac) if getattr(model, "latent", True) else np.full(1, np.nan)
             robust = {}
-            for s in SIGMAS:
-                noisy = sq.copy()
-                noisy[:, :H, :N_STATE] += s * norm.std[:N_STATE] * noise[:, Hm - H:]
-                pn = predict(model, norm, noisy[:, :H + Ln], H, True, ac).astype(np.float64)
-                e = np.sqrt(np.mean(((pn - true[:, :Ln]) / std) ** 2, (1, 2)))
-                robust[f"{s:g}"] = dict(median=float(np.median(e)), q25=float(np.percentile(e, 25)),
-                                        q75=float(np.percentile(e, 75)))
+            for kind, real in reals.items():
+                r = robust[kind] = {}
+                for s in SIGMAS:
+                    noisy = sq.copy()
+                    noisy[:, :H, :N_STATE] = corrupt(past, kind, s, std, real)[:, Hm - H:]
+                    pn = predict(model, norm, noisy[:, :H + Ln], H, True, ac).astype(np.float64)
+                    e = np.sqrt(np.mean(((pn - true[:, :Ln]) / std) ** 2, (1, 2)))
+                    r[f"{s:g}"] = dict(median=float(np.median(e)), q25=float(np.percentile(e, 25)),
+                                       q75=float(np.percentile(e, 75)))
             res = dict(
                 n_rollouts=len(st), dt=DT,
                 position_rmse_m=rms(pos_e).tolist(), velocity_rmse_ms=rms(vel_e).tolist(),
@@ -170,13 +197,16 @@ def main():
                 error_growth=np.r_[np.nan, np.mean(np.diff(e_roll, axis=1), 0)].tolist(),
                 straightening=dict(mean=float(straight.mean()), q25=float(np.percentile(straight, 25)),
                                    q75=float(np.percentile(straight, 75))),
-                noise_robustness=robust)
+                noise_robustness=robust["gauss"])
+            if kinds:                                                   # default run: same keys as before
+                res.update(noise_settings=settings, **{f"noise_robustness_{k}": robust[k] for k in kinds})
             k1, kL = int(1 / DT) - 1, L - 1
             print(f"   {Path(d).name:34s} pos {res['position_rmse_m'][k1]:6.2f} / {res['position_rmse_m'][kL]:6.1f} m"
                   f"  att {res['attitude_rmse_deg'][k1]:5.1f} / {res['attitude_rmse_deg'][kL]:5.1f} deg"
                   f"  CR {res['compounding_ratio'][kL]:5.2f}  straight {straight.mean():5.2f}"
-                  f"  noise0 {robust['0']['median']:.3f}  (1 s / {a.horizon_s:g} s)")
-            out = Path(d) / f"eval_skyjepa_{a.set}.json"
+                  f"  noise0 {robust['gauss']['0']['median']:.3f}  (1 s / {a.horizon_s:g} s)"
+                  + "".join(f"  {k}{SIGMAS[-1]:g} {robust[k][f'{SIGMAS[-1]:g}']['median']:.3f}" for k in kinds))
+            out = Path(d) / f"eval_skyjepa_{a.set}{'_nominal' if a.nominal_params else ''}.json"
             prev = json.load(open(out)) if out.exists() else {}
             prev[gname] = res
             json.dump(prev, open(out, "w"), indent=1)

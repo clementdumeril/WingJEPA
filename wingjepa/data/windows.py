@@ -66,6 +66,17 @@ def aircraft_params(meta, oracle=False):
     return np.concatenate([P, np.stack(extra, 1).astype(np.float32)], 1)
 
 
+def nominal_params(P):
+    """Same array as aircraft_params, with the nominal aircraft for every flight: nominal mass and inertias
+    (configs/ultrastick120.yaml) and, for the oracle columns, factors 1 and no CG shift (normalized 0). Used to
+    test a physics head that is NOT told the true mass and inertia of the aircraft."""
+    from wingjepa.models.jepa import NOMINAL_AIRCRAFT
+    Q = np.array(P, np.float32, copy=True)
+    Q[:, :5] = np.asarray(NOMINAL_AIRCRAFT, np.float32)
+    Q[:, 5:] = 0.0
+    return Q
+
+
 def true_wind_features(data, ch):
     """True wind (mean + gusts, without turbulence) in the heading frame, (n, K, 3): used for the
     "known wind" evaluation, to separate the model error from what is unpredictable."""

@@ -1,9 +1,12 @@
 """JEPA-type latent world model (docs/model_design.md): TCN encoder, GRU predictor, decoder.
 
   past: states (B, H, 9) --encoder--> z (B, D)
-  (by default the encoder sees neither the controls nor the wind. With action_history, a second TCN reads
-  the past commands, as the action encoder of SkyJEPA does: the states alone do not say which commands
-  produced the recent motion)
+  (by default the encoder sees neither the controls nor the wind, as in SkyJEPA, whose state encoder reads the
+  states only and whose action encoder meets them in the predictor (eq. 7-8). With action_history, the state
+  encoder also reads the past commands: the states alone do not say which commands produced the recent
+  motion. action_history = 1: a second TCN over the commands, merged with the state summary at the
+  output layer; 2: one joint TCN over states and commands, mixed from the first layer on, so that the encoder
+  can compare a command with the response it produced, which is how the aircraft (motor, CG) is identified)
   z_k, input_k (controls + wind held constant) --predictor--> z_{k+1}
   z_k --decoder--> state (B, 9)
 The decoder is the "head": black box (model A, MLP) or physics head (model C, models/physics.py).
@@ -42,29 +45,35 @@ def causal_tcn(c, channels, k, dilations):
 
 
 class TCNEncoder(nn.Module):
-    """Causal TCN over the past states. n_act > 0: a second TCN (act_channels per layer, same dilations)
-    over the past commands, stored after the n_in states in the input; its summary joins the state summary
-    and the aircraft parameters before the output layer. The commands are shifted by one step: the command
+    """Causal TCN over the past states. n_act > 0: the past commands, stored after the n_in states in the
+    input, are read too: joint=False, by a second TCN (act_channels per layer, same dilations) whose summary
+    joins the state summary and the aircraft parameters before the output layer; joint=True, as extra input
+    channels of the state TCN itself. The commands are shifted by one step: the command
     of step k is applied from k to k+1, so the window ending at a state sees exactly the commands that led
     to it, and none that the predictor has not been given yet."""
 
     def __init__(self, n_in=16, channels=(16, 16, 32), k=3, dilations=(1, 2, 4), z_dim=32, n_ctx=0, n_act=0,
-                 act_channels=16):
+                 act_channels=16, joint=False):
         super().__init__()
-        self.n_in, self.n_act = n_in, n_act
-        self.tcn = causal_tcn(n_in, channels, k, dilations)
+        self.n_in, self.n_act, self.joint = n_in, n_act, bool(joint and n_act)
+        self.tcn = causal_tcn(n_in + (n_act if self.joint else 0), channels, k, dilations)
         c = channels[-1]
-        if n_act:
+        if n_act and not self.joint:
             self.act_tcn = causal_tcn(n_act, (act_channels,) * len(dilations), k, dilations)
             c += act_channels
         self.out = nn.Linear(c + n_ctx, z_dim)
         self.receptive_field = 1 + (k - 1) * sum(dilations)
 
     def forward(self, past, ctx=None):              # past : (B, H, n_in + n_act) ; ctx : (B, n_ctx), constant over the flight
-        h = self.tcn(past[:, :, :self.n_in].transpose(1, 2))[:, :, -1]          # last step
+        x = past[:, :, :self.n_in].transpose(1, 2)
         if self.n_act:
             u = F.pad(past[:, :-1, self.n_in:].transpose(1, 2), (1, 0))       # commands delayed by one step
-            h = torch.cat([h, self.act_tcn(u)[:, :, -1]], -1)
+        if self.joint:
+            h = self.tcn(torch.cat([x, u], 1))[:, :, -1]                       # last step
+        else:
+            h = self.tcn(x)[:, :, -1]
+            if self.n_act:
+                h = torch.cat([h, self.act_tcn(u)[:, :, -1]], -1)
         if ctx is not None:
             h = torch.cat([h, ctx], -1)
         return self.out(h)
@@ -112,6 +121,30 @@ class MLPDecoder(nn.Module):
         return self.net(z)
 
 
+class ResidualHead(nn.Module):
+    """Control for the physics head: same inputs (latent z_k, current state, commands and wind), same start
+    from the measured state and same step-by-step integration, but NO equations of motion: the next normalized
+    state is s_{k+1} = s_k + out_scale * MLP(z_k, s_k, u_k). Separates what the physics head gains from Newton-Euler
+    from what it gains from reading (s_k, u_k) and being re-anchored on the measured state."""
+
+    def __init__(self, z_dim=32, hidden=64, out_scale=0.1):
+        super().__init__()
+        self.out_scale = out_scale
+        self.net = nn.Sequential(nn.Linear(z_dim + N_STATE + N_CTRL + N_WIND, hidden), nn.GELU(),
+                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, N_STATE))
+
+    def forward(self, zs, s0, U, ac=None):
+        """zs (B, T, D): latents at the start of each step; s0 (B, 9): last observed state, normalized;
+        U (B, T, 7): normalized future inputs -> predicted states (B, T, 9), raw outputs (B, T, 9)."""
+        s, out, raws = s0, [], []
+        for k in range(U.shape[1]):
+            raw = self.net(torch.cat([zs[:, k], s, U[:, k]], -1))
+            s = s + self.out_scale * raw
+            out.append(s)
+            raws.append(raw)
+        return torch.stack(out, 1), torch.stack(raws, 1)
+
+
 def sigreg(z, n_proj=256, n_knots=17, t_max=5.0):
     """SIGReg (LeJEPA, Balestriero & LeCun 2025): pushes the distribution of the z in a batch towards an
     isotropic Gaussian. Random projections; for each one, Epps-Pulley statistic: gap between the
@@ -132,8 +165,9 @@ NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 
 class WorldModel(nn.Module):
-    """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required).
-    action_history: the encoder also reads the past commands (second TCN).
+    """head = "mlp" (black-box decoder), "physics" (physics head, prior and norm required) or "residual"
+    (same inputs and integration as the physics head, without the equations of motion: ResidualHead).
+    action_history: the encoder also reads the past commands (1: second TCN, 2: joint TCN).
     target_window: length of the windows encoded as JEPA targets (default 0: H, the context length).
     act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi)."""
 
@@ -144,12 +178,15 @@ class WorldModel(nn.Module):
         self.target_window = target_window
         n_act = N_CTRL if action_history else 0
         self.n_past = N_STATE + n_act                                  # channels of seq the encoder reads
-        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act)
+        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act,
+                                  joint=int(action_history) == 2)
         self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim, act_channels, k, dilations)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
         if head == "mlp":
             self.decoder = MLPDecoder(z_dim, dec_hidden)
+        elif head == "residual":
+            self.decoder = ResidualHead(z_dim, dec_hidden, out_scale)
         else:
             from wingjepa.models.physics import PhysicsHead
             self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub,
@@ -222,6 +259,9 @@ class WorldModel(nn.Module):
 
 def model_from_config(cfg, prior=None):
     """Rebuild the model of a run (config.json). v1 runs lack the v2 keys: v1 values are used."""
+    if cfg.get("mode") == "mlp_direct":                              # plain MLP baseline, no latent
+        from wingjepa.models.mlp_direct import MLPDirect
+        return MLPDirect.from_config(cfg)
     from wingjepa.data.windows import Normalizer
     ints = lambda v, d: tuple(int(x) for x in str(v).split(",")) if v is not None else d
     head = cfg.get("head", "mlp")
@@ -231,6 +271,6 @@ def model_from_config(cfg, prior=None):
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
                       correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
-                      action_history=bool(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
+                      action_history=int(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
                       act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None,
                       n_oracle=8 if cfg.get("oracle_params") and head == "physics" else 0)

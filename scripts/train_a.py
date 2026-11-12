@@ -201,6 +201,11 @@ def main():
                     help="> 0: context latent of that size, read from the past states and commands, given to the "
                          "GRU at every step and to the head; the target of no loss (aircraft identity)")
     ap.add_argument("--context-channels", default="8,8,16", help="channels of the context encoder layers")
+    ap.add_argument("--id-jepa", type=float, default=0.0,
+                    help="> 0 (needs --context-dim): identification JEPA on the context latent, with this weight: two "
+                         "windows of the same flight must give the same c (the aircraft is the only thing they surely "
+                         "share), SIGReg keeps the c of a batch spread out; added to the training loss of the trunk")
+    ap.add_argument("--id-gap-s", type=float, default=2.0, help="minimum time between the two windows (s)")
     ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
     ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
@@ -270,6 +275,10 @@ def main():
         ap.error("--ema needs a latent model (no encoder in the mlp_direct mode)")
     if a.mode == "mlp_direct" and a.context_dim:
         ap.error("--context-dim needs a latent model")
+    if a.id_jepa > 0 and not a.context_dim:
+        ap.error("--id-jepa needs --context-dim")
+    if a.id_jepa > 0 and a.mode == "c_jepa":
+        ap.error("--id-jepa trains the trunk: give it to the jepa / a0 run, not to c_jepa (frozen trunk)")
     a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
     trunk_cfg = None
     if a.mode == "c_jepa":
@@ -336,6 +345,30 @@ def main():
         ac = torch.from_numpy(S_tr.aircraft(rows)).to(dev)
         return (seq, ac, clean) if keep_clean else (seq, ac)
 
+    def id_loss():
+        """Identification JEPA: context latents c of two windows of the same flight, at least --id-gap-s apart, must
+        match (invariance); SIGReg on each set of c prevents the trivial constant solution. Same noise augmentation
+        as the main batch. Returns (loss, dict of parts)."""
+        rows = S_tr.sample_rows(a.batch)
+        pair = S_tr.partner_rows(rows, int(round(a.id_gap_s / 0.05)))
+        xs = []
+        for r in (rows, pair):
+            x = torch.from_numpy(S_tr.gather(r)[:, :H]).to(dev)
+            if a.input_noise > 0:
+                sig = a.input_noise * torch.rand(x.shape[0], 1, 1, device=dev)
+                x[:, :, :N_STATE] += sig * torch.randn_like(x[:, :, :N_STATE])
+            xs.append(x)
+        ca, cb = model.context_of(xs[0]), model.context_of(xs[1])
+        inv = ((ca - cb) ** 2).mean()
+        reg = 0.5 * (sigreg(ca, n_proj=a.sigreg_proj) + sigreg(cb, n_proj=a.sigreg_proj))
+        return a.id_jepa * (inv + a.lambda_sig * reg), dict(id_inv=inv.item(), id_sigreg=reg.item())
+
+    def with_id(loss, parts):
+        if a.id_jepa > 0:
+            li, pi = id_loss()
+            return loss + li, dict(parts, **pi)
+        return loss, parts
+
     def state_err(pred, seq):
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
 
@@ -397,7 +430,7 @@ def main():
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
                  lambda_phys=0.0, input_noise=0.0, oracle_params=0, head_kind="physics", mlp_hidden="50,50",
-                 context_dim=0, context_channels="8,8,16")
+                 context_dim=0, context_channels="8,8,16", id_jepa=0.0, id_gap_s=2.0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
     resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
@@ -419,7 +452,7 @@ def main():
         def loss1(step):
             T = T_at(step, a.steps1)
             loss, _, parts = jepa_loss(*nxt(T, keep_clean=True))
-            return loss, dict(parts, T=T)
+            return with_id(loss, dict(parts, T=T))
 
         def val1():
             # prediction error normalized by the spread of the target latents: independent of the
@@ -456,7 +489,7 @@ def main():
             seq, ac = nxt(T)
             lj, (z0, zp, U), parts = jepa_loss(seq, ac)
             ls = state_err(model.head_states(z0, zp, U, seq, H, ac)[0], seq)
-            return lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T)
+            return with_id(lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T))
 
         best = run_stage("joint", list(model.parameters()), loss_joint, val_state, steps, a, log, ckpt,
                          resume, after_step=after)
@@ -482,8 +515,8 @@ def main():
             ls, res, pred = state_loss(seq, ac)
             if a.lambda_phys > 0:
                 ph = phys_residual(pred, seq)
-                return ls + a.lambda_res * res + a.lambda_phys * ph, dict(state=ls.item(), phys=ph.item(), T=T)
-            return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
+                return with_id(ls + a.lambda_res * res + a.lambda_phys * ph, dict(state=ls.item(), phys=ph.item(), T=T))
+            return with_id(ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T))
 
         best = run_stage(a.mode, list(model.parameters()), loss_direct, val_state, steps, a, log, ckpt, resume)
         summary = dict(best_val_state=best)

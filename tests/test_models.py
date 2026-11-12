@@ -333,3 +333,16 @@ def test_context_latent_reads_the_past_only_and_is_no_jepa_target(head):
     past_cmd[:, :10, N_STATE:N_STATE + 3] += 0.1                      # past commands: change c, hence the rollout
     assert not torch.allclose(m.context_of(past_cmd[:, :11]), m.context_of(seq[:, :11]))
     assert not torch.allclose(m.latents(past_cmd, 11)[1], zs)
+
+
+def test_partner_rows_pick_another_window_of_the_same_flight():
+    """Identification JEPA pairs: same flight, at least min_gap steps apart when the flight allows it."""
+    from wingjepa.data.windows import WindowSampler
+    rng = np.random.default_rng(0)
+    alive = np.ones((5, 200), bool)
+    alive[2, 120:] = False                                            # a shorter flight
+    S = WindowSampler(rng.standard_normal((5, 200, 16)).astype(np.float32), alive, 11, 20, seed=0)
+    rows = S.sample_rows(500)
+    pair = S.partner_rows(rows, min_gap=40)
+    assert (S.idx[pair, 0] == S.idx[rows, 0]).all()
+    assert (np.abs(S.idx[pair, 1] - S.idx[rows, 1]) >= 40).mean() > 0.99

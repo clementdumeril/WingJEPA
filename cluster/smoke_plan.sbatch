@@ -3,7 +3,7 @@
 #   1. unit tests (tests/);
 #   2. a few steps of: a0 with the joint command encoder (--action-history 2), the plain MLP baseline
 #      (--mode mlp_direct), the residual control head (c_direct --head-kind residual), a denoising JEPA
-#      (jepa --input-noise 0.5) and c_jepa on it, the context latent (jepa and a0 --context-dim 8, c_jepa on it);
+#      (jepa --input-noise 0.5) and c_jepa on it, the context latent (jepa and a0 --context-dim 8, c_jepa on it), the identification JEPA (--id-jepa);
 #   3. eval_skyjepa with every noise kind and with the nominal mass and inertia, the aircraft probe, a tiny
 #      closed loop with colored noise and nominal parameters, and its paired statistics.
 # Nothing is kept (runs/smoke_plan/). Usage: sbatch cluster/smoke_plan.sbatch
@@ -41,12 +41,14 @@ python scripts/train_a.py --data-dir "$DATA" --out $S/jepa_ctx --mode jepa --con
 python scripts/train_a.py --data-dir "$DATA" --out $S/a0_ctx --mode a0 --context-dim 8 $ARCH $FAST
 python scripts/train_a.py --data-dir "$DATA" --out $S/c_jepa_ctx --mode c_jepa --prior $PRIOR --trunk $S/jepa_ctx $ARCH $FAST
 grep -q '"context_dim": 8' $S/c_jepa_ctx/config.json && echo "c_jepa took the context latent of its trunk"
+python scripts/train_a.py --data-dir "$DATA" --out $S/jepa_id --mode jepa --context-dim 8 --id-jepa 1 $ARCH $FAST
+grep -q '"id_inv"' $S/jepa_id/log.json && echo "identification JEPA loss logged"
 echo "=== 3. evaluations"
 M="$S/a0_ah2 $S/mlp $S/res $S/c_jepa_dn $S/jepa_ctx $S/c_jepa_ctx"
 python scripts/eval_skyjepa.py --data-dir "$DATA" --models $M --noise-kinds gauss bias colored dropout --max-rollouts 64
 python scripts/eval_skyjepa.py --data-dir "$DATA" --models $S/c_jepa_dn --nominal-params 1 --max-rollouts 64
 ls $S/c_jepa_dn/eval_skyjepa_test_long_nominal.json
-python scripts/probe_aircraft.py --data-dir "$DATA" --models $S/a0_ah2 $S/jepa_dn $S/jepa_ctx $S/a0_ctx --hist-s 0.55 --n-fit 2000 --steps 50 \
+python scripts/probe_aircraft.py --data-dir "$DATA" --models $S/a0_ah2 $S/jepa_dn $S/jepa_ctx $S/a0_ctx $S/jepa_id --hist-s 0.55 --n-fit 2000 --steps 50 \
     --out $S/probe
 for k in colored dropout; do
     python scripts/closed_loop.py --controllers tecs $S/mlp $S/c_jepa_dn $S/c_jepa_ctx --out $S/cl_$k.json --n-train 2 --n-test 2 \

@@ -158,6 +158,22 @@ class WindowSampler:
     def sample_rows(self, B):
         return self.rng.integers(0, len(self.idx), B)
 
+    def partner_rows(self, rows, min_gap=0):
+        """For each row, another window of the SAME flight, drawn uniformly among the flight's windows and
+        redrawn (a few times) when it starts less than min_gap steps from the first one. self.idx is sorted by
+        flight (window_starts), so the windows of a flight are a contiguous block."""
+        fl = self.idx[:, 0]
+        f = fl[rows]
+        lo, hi = np.searchsorted(fl, f, "left"), np.searchsorted(fl, f, "right")
+        draw = lambda m: lo[m] + (self.rng.random(m.sum()) * (hi - lo)[m]).astype(np.int64)
+        out = draw(np.ones(len(rows), bool))
+        for _ in range(8):
+            close = np.abs(self.idx[out, 1] - self.idx[rows, 1]) < min_gap
+            if not close.any():
+                break
+            out[close] = draw(close)
+        return out
+
     def fixed_rows(self, B, seed=123):
         return np.random.default_rng(seed).choice(len(self.idx), min(B, len(self.idx)), replace=False)
 

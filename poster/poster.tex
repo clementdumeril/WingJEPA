@@ -57,6 +57,9 @@
 \newcommand{\mDPE}{\Dir{Direct} \Phy{+ physics} \textbf{(end to end)}}
 \newcommand{\mMLP}{\textbf{Plain MLP}}
 \newcommand{\mTECS}{\textbf{TECS}}
+\newcommand{\mMLPn}{\textbf{Plain MLP + noise}}
+\newcommand{\mDPn}{\Dir{Direct} \Phy{+ physics} \textbf{+ noise}}
+\newcommand{\mJPn}{\Jep{JEPA} \Phy{+ physics} \textbf{+ noise}}
 \newcommand{\cnum}[1]{\tikz[baseline=(c.base)]\node[circle,fill=white,text=navy,
   inner sep=0pt,minimum size=1.25em,font=\bfseries](c){#1};}
 \renewcommand{\cite}[1]{\textcolor{soft}{[#1]}}
@@ -69,7 +72,9 @@
   \par\vspace{0.2em}{\centering
   \IfFileExists{figures/#1}{\includegraphics[width=#2,height=#3,keepaspectratio]{#1}}%
   {\fcolorbox{soft}{white}{\parbox[c][#3][c]{\dimexpr#2-2\fboxsep-2\fboxrule\relax}{\centering
-     \textcolor{soft}{placeholder: \texttt{figures/#1}}}}}\par}\vspace{0.2em}}
+     \textcolor{soft}{placeholder: \texttt{\detokenize{figures/#1}}}}}}\par}\vspace{0.2em}}
+\newcommand{\subhead}[1]{\par\vspace{0.25em}{\large\bfseries\color{navy}#1\par}\vspace{-0.1em}%
+  {\color{navy!35}\rule{\linewidth}{1.2pt}}\par\vspace{0.1em}}
 \newcommand{\figcap}[1]{{\footnotesize\textcolor{soft}{#1}\par}\vspace{0.25em}}
 
 % ---------------------------------------------------------------- boxes
@@ -130,9 +135,8 @@
   \begin{tabular}{@{}m{5.6in}@{\hspace{0.4in}}m{38.4in}@{}}
   \textcolor{jepa}{\bfseries Answer in one line} &
   \textbf{In this setting, no.} On a fixed wing whose commands are not forces, \mJP{} reproduces SkyJEPA's
-  ranking on training-range aircraft, but the two controls SkyJEPA did not run predict better
-  (the same \Phy{physics head} trained end to end, and a \mMLP{} of 10.6k parameters),
-  and the \Jep{JEPA} latent keeps little motor or CG information.
+  ranking on training-range aircraft, but the controls SkyJEPA did not run predict better, the \Jep{JEPA}
+  latent keeps little motor or CG information, and with equal noise training \mJPn{} tracks worse under every noise kind.
   \end{tabular}
 \end{tcolorbox}
 
@@ -325,31 +329,36 @@ with a free context latent (training range / extreme):\par\vspace{0.05em}
 \hfill
 % ---------------------------------------------------------------- column 4
 \begin{minipage}[t][\colH][t]{\cw}\vspace{0pt}
-\begin{panel}[height=\colH]{6}{Q3, noise at equal (clean) training: JEPA acts like a low-pass filter (interpretation)}
-\fig{fig_noise_openloop.pdf}{\linewidth}{3.85in}
-\textbf{Open loop} (training-range aircraft, mean of seeds): \mJM{} starts high (\textbf{0.23} vs
-\textbf{0.045} for the \mMLP{} at $\sigma = 0$) and grows less in relative terms ($\times 2.5$ vs
-$\times 10$ at $\sigma = 0.5$); it stays above the \mMLP{} at every $\sigma$.
-\fig{fig_closedloop.pdf}{\linewidth}{6.0in}
-\textbf{Closed loop} (MPPI, 200 aircraft, environment seed never used for tuning, models trained on clean
-data, one training seed each; tracking over the aircraft every controller kept):
+\begin{panel}[height=\colH]{6}{Q3, noise: JEPA helps only when nothing is trained with noise}
+\subhead{Clean training (no model sees noise)}
+\textbf{Open loop}: \mJM{} starts high (\textbf{0.23} vs \textbf{0.045} for the \mMLP{} at $\sigma = 0$)
+and grows less in relative terms ($\times 2.5$ vs $\times 10$ at $\sigma = 0.5$); it stays above the
+\mMLP{} at every $\sigma$.
+\fig{fig_closedloop.pdf}{\linewidth}{5.3in}
+\textbf{Closed loop} (MPPI, 200 aircraft, environment seed never used for tuning, one training seed per model):
 \begin{itemize}
   \item \mJP{} tracks airspeed \textbf{3--9\,\%} better than \mDPE{} and the \mMLP{} under the four
-        sensor-noise kinds. Gaussian 0.5: \textbf{1.19} vs \textbf{1.24} and \textbf{1.25\,m/s}
-        (paired bootstrap 95\,\% CI excludes 0, 177 common aircraft); Gaussian 1.0: \textbf{1.67} vs
-        \textbf{1.74} and \textbf{1.77}.
-  \item Altitude tracking is mixed (\mMLP{} better under Gaussian 0.5: 7.69 vs 7.91\,m).
-  \item Worse than \mDPE{} under real motion and data gaps: severe turbulence \textbf{1.49} vs
-        \textbf{1.37\,m/s} (\mMLP{} 1.63); dropout 0.3: \textbf{1.05} vs \textbf{0.97}.
+        sensor-noise kinds (Gaussian 0.5: \textbf{1.19} vs \textbf{1.24} and \textbf{1.25\,m/s}, paired
+        bootstrap 95\,\% CI excludes 0; Gaussian 1.0: \textbf{1.67} vs \textbf{1.74} and \textbf{1.77}).
+  \item It is worse than \mDPE{} under real motion and data gaps (severe turbulence \textbf{1.49} vs
+        \textbf{1.37\,m/s}; dropout 0.3: \textbf{1.05} vs \textbf{0.97}). It smooths, consistent with
+        \cite{5} (not tested directly).
 \end{itemize}
-Smoothing would help when the fast content is fake motion and hurt when it is real. This is consistent
-with JEPA favoring predictable, low-noise features \cite{5}, but we did not test it directly.
-\begin{progbox}
-\textbf{In progress: equal \emph{noise} training.} A denoising \Jep{JEPA} vs \mDPE{} and the \mMLP{},
-trained with the same noise, tested on noise kinds never seen in training. Already measured: the
-\mMLP{} trained with noise tracks at \textbf{1.20\,m/s} under Gaussian 1.0 (\mJP{}, clean:
-\textbf{1.67}), but 1.62 vs 1.56\,m/s for the clean \mMLP{} under severe turbulence (separate run, its own turbulence draw).
-\end{progbox}
+\subhead{Equal noise training}
+{\small All three get the same augmentation: Gaussian noise ($\sigma$ up to 0.5 of each state's std) on the
+past states, clean targets (for the JEPA, the target encoder sees the clean windows); the JEPA trunk
+and its physics head are both trained with it.\par}
+\fig{fig_equal_noise.pdf}{\linewidth}{4.6in}
+\begin{itemize}
+  \item \mJPn{} tracks airspeed \textbf{12--27\,\%} worse than \mMLPn{} and \mDPn{} in all five
+        conditions, including the four noise kinds never seen in training. Gaussian 1.0 (kind seen in
+        training, level twice the training maximum): \textbf{1.55} vs \textbf{1.22} and \textbf{1.31\,m/s}.
+  \item Open loop, on unseen bias and colored noise the three are within \textbf{0.02} (normalized 1-s
+        error); \mJPn{} is the least accurate at 5\,s (\textbf{10.4\,m} vs \textbf{6.6} and
+        \textbf{7.2\,m}).
+\end{itemize}
+\textbf{Noise augmentation gives what the JEPA trunk gave, and more}: under Gaussian 1.0 the \mMLP{}
+goes from \textbf{1.77} (clean) to \textbf{1.22\,m/s} (\mMLPn).
 \end{panel}
 \end{minipage}%
 \hfill
@@ -382,8 +391,9 @@ Survival does not separate the \mMLP{} and the physics-head models; tracking doe
   \item Here the commands are not forces, so the model must identify the airframe; the \Jep{JEPA} latent
         keeps little motor and CG information ($R^2$ \textbf{0.09} / \textbf{0.30} vs \textbf{0.49} /
         \textbf{0.75}), even with a free context latent.
-  \item At clean training, the \Jep{JEPA} trunk tracks \textbf{3--9\,\%} better under sensor noise and worse
-        than the end-to-end physics model under turbulence: it smooths.
+  \item The \Jep{JEPA} trunk is less sensitive to sensor noise only when no model is trained with noise
+        (\textbf{3--9\,\%}). With the same noise augmentation, \mMLPn{} and \mDPn{} track
+        \textbf{12--27\,\%} better than \mJPn{} under every noise kind, including kinds never seen in training.
   \item With 9 states, a \mMLP{} of 10.6k parameters on the raw window predicts as well as the best
         physics model and better than the JEPA models.
 \end{enumerate}
@@ -392,7 +402,8 @@ Survival does not separate the \mMLP{} and the physics-head models; tracking doe
 \end{keybox}
 \begin{keybox}[soft]
 \textbf{Limits}: simulation only; one airframe family; one training seed per model in closed loop;
-physics heads receive the true mass and inertia, the other models do not; the link to
+physics heads receive the true mass and inertia, the other models do not; noise-trained models were
+selected on clean validation flights; the link to
 ``commands are not forces'' is not tested by varying the command type.
 \end{keybox}
 \end{panel}

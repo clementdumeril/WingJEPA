@@ -35,7 +35,7 @@ M = {
     "mlp":      dict(label="Plain MLP", color="#333333", marker="P"),
     "tecs":     dict(label="TECS autopilot", color="#8A8A8A", marker="X"),
 }
-NOISE_SUFFIX = "+ noise training"
+NOISE_SUFFIX = "+ noise"  # Gaussian noise on the past states in training (sigma ~ U[0, 0.5]), clean targets
 
 
 def wrap(k):
@@ -313,6 +313,57 @@ def fig_closedloop():
     return out
 
 
+# ---------------------------------------------------------------- 7. equal noise training
+def fig_equal_noise():
+    """Closed loop with every model trained with the same Gaussian noise on the past states
+    (sigma drawn uniformly in [0, 0.5] per window)."""
+    eq = SAVIO["closed_loop"]["equal_noise_training"]
+    conds = [("gauss_1.0", "Gauss.\n1.0"), ("colored_0.5", "colored\n0.5"), ("bias_0.5", "bias\n0.5"),
+             ("dropout_0.3", "dropout\n0.3"), ("turb_severe", "turb.\nsevere")]
+    bars = [("mlp_direct_calm_sky_noiseaug_s0", "mlp", "Plain MLP " + NOISE_SUFFIX),
+            ("c_direct_calm_sky_nul_noiseaug_s0", "cdirect", "Direct + physics " + NOISE_SUFFIX),
+            ("c_jepa_calm_sky_dn_nul_s0", "cjepa", "JEPA + physics " + NOISE_SUFFIX)]
+    xs = np.array([0, 1.85, 2.85, 3.85, 4.85])  # wider slot for the condition whose kind was seen in training
+    w = 0.3
+    fig, ax = plt.subplots(figsize=(8.6, 4.6), layout="constrained")
+    for x0, x1, name, col in ((-1.1, 1.1, "kind seen, level\n2x training max", "#e9eef5"),
+                              (1.1, 5.47, "never seen in training", "#f3f2ee")):
+        ax.axvspan(x0, x1, color=col, zorder=0, lw=0)
+        ax.text((x0 + x1) / 2, 2.88, name, ha="center", va="top", fontweight="bold", color=INK2, linespacing=1.0)
+    out = {}
+    for x, (cond, _) in zip(xs, conds):
+        ctl = eq[cond]["controllers"]
+        for j, (key, k, _) in enumerate(bars):
+            v, xx = ctl[key]["V"], x + (j - 1) * w
+            out[(cond, key)] = v
+            ax.bar(xx, v, width=w - 0.04, color=M[k]["color"], lw=0, zorder=2)
+            ink = INK if k == "cjepa" else "white"
+            ax.text(xx, 0.06, f"{v:.2f}", rotation=90, ha="center", va="bottom", fontsize=NUM, color=ink, zorder=3)
+            surv = ctl[key]["survival"]
+            if surv < 200:
+                ax.text(xx, max(v, ctl["c_jepa_calm_sky_nul_s0"]["V"]) + 0.07, f"{surv}/200", ha="center",
+                        va="bottom", fontsize=NUM, color=LOSS_INK, zorder=5,
+                        bbox=dict(fc="white", ec="none", pad=0.5, alpha=0.8))
+        clean = ctl["c_jepa_calm_sky_nul_s0"]["V"]
+        out[(cond, "c_jepa_calm_sky_nul_s0")] = clean
+        ax.plot(x + w, clean, marker="D", ms=11, mfc="white", mec=INK, mew=2, ls="none", zorder=4)
+    ax.set_xticks(xs, [c[1] for c in conds])
+    ax.tick_params(axis="x", length=0)
+    ax.set_xlim(-1.1, 5.47)
+    ax.set_ylim(0, 2.92)
+    ax.set_yticks([0, 0.5, 1, 1.5, 2])
+    ax.grid(axis="x", visible=False)
+    ax.set_ylabel("Airspeed\nRMS [m/s]")
+    handles = [Patch(fc=M[k]["color"], label=lab) for _, k, lab in (bars[0], bars[2], bars[1])]
+    handles.append(Line2D([], [], marker="D", ms=11, mfc="white", mec=INK, mew=2, ls="none",
+                          label="JEPA + physics,\nclean training"))
+    leg = fig.legend(handles=handles, loc="outside lower center", ncol=2, columnspacing=1.2,
+                     title="One training seed per model; 200 aircraft; env. seed 1.", title_fontsize=22)
+    leg.get_title().set_color(INK2)
+    save(fig, "fig_equal_noise")
+    return out
+
+
 # ---------------------------------------------------------------- 6. survival
 def fig_survival():
     conds = [("gauss_0.5", "Gauss.\n0.5"), ("dropout_0.3", "drop.\n0.3"), ("gauss_1.0", "Gauss.\n1.0"),
@@ -357,3 +408,4 @@ if __name__ == "__main__":
     fig_noise_openloop()
     fig_closedloop()
     fig_survival()
+    print("equal noise V:", fig_equal_noise())

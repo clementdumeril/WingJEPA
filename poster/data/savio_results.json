@@ -1,123 +1,1125 @@
 {
  "_about": "Numbers printed by the cluster runs of 2026-11-10/11 (scripts/eval_skyjepa.py, scripts/probe_aircraft.py, scripts/closed_loop.py + scripts/closed_loop_stats.py), copied from their logs. Groups: 'train' = aircraft drawn in the training ranges, 'test' = extreme aircraft beyond them. Seed 0 unless a list is given.",
-
  "open_loop_5s": {
   "_about": "eval_skyjepa on data_calm test_long, 2000 rollouts of 5 s per group; position RMSE [m] and attitude RMSE [deg] at 1 s and 5 s.",
-  "mlp_direct_calm_sky": {"seeds": [0, 1, 2],
-    "train": {"pos_1s": [0.73, 0.73, 0.73], "pos_5s": [6.0, 6.2, 5.9], "att_1s": [1.4, 1.5, 1.5], "att_5s": [7.0, 7.0, 6.8]},
-    "test":  {"pos_1s": [0.79, 0.80, 0.79], "pos_5s": [11.8, 12.7, 13.1], "att_1s": [2.8, 2.9, 2.9], "att_5s": [16.8, 17.9, 19.5]}},
-  "mlp_direct_calm_sky_noiseaug": {"train": {"pos_1s": 0.76, "pos_5s": 6.6, "att_5s": 7.1}, "test": {"pos_1s": 0.87, "pos_5s": 13.3, "att_5s": 18.3}},
-  "a0_calm_sky_ctx8":            {"train": {"pos_1s": 0.72, "pos_5s": 8.1,  "att_5s": 12.0}, "test": {"pos_1s": 0.81, "pos_5s": 11.8, "att_5s": 16.3}},
-  "jepa_calm_sky_ctx8":          {"train": {"pos_1s": 1.08, "pos_5s": 17.1, "att_5s": 27.5}, "test": {"pos_1s": 1.34, "pos_5s": 19.2, "att_5s": 28.1}},
-  "c_jepa_calm_sky_ctx8_nul":    {"train": {"pos_1s": 0.77, "pos_5s": 8.0,  "att_5s": 10.1}, "test": {"pos_1s": 1.05, "pos_5s": 20.6, "att_5s": 28.3}},
-  "c_jepa_calm_sky_a0_ctx8_nul": {"train": {"pos_1s": 0.73, "pos_5s": 6.0,  "att_5s": 7.4},  "test": {"pos_1s": 0.82, "pos_5s": 11.1, "att_5s": 14.4}},
-  "a0_calm_sky_s0":              {"train": {"pos_1s": 0.73, "pos_5s": 11.8, "att_5s": 20.8}, "test": {"pos_1s": 0.82, "pos_5s": 19.0, "att_5s": 31.7}},
-  "jepa_calm_sky_s0":            {"train": {"pos_1s": 1.24, "pos_5s": 15.2, "att_5s": 23.1}, "test": {"pos_1s": 1.53, "pos_5s": 17.8, "att_5s": 25.1}},
-  "c_jepa_calm_sky_nul_s0":      {"train": {"pos_1s": 0.77, "pos_5s": 8.3,  "att_5s": 10.0}, "test": {"pos_1s": 1.04, "pos_5s": 22.9, "att_5s": 31.1}},
-  "c_jepa_calm_sky_a0_s0":       {"train": {"pos_1s": 0.73, "pos_5s": 11.2, "att_5s": 17.8}, "test": {"pos_1s": 0.85, "pos_5s": 19.5, "att_5s": 33.2}},
-  "c_direct_calm_sky_nul_s0":    {"train": {"pos_1s": 0.72, "pos_5s": 5.9,  "att_5s": 6.8},  "test": {"pos_1s": 0.83, "pos_5s": 12.2, "att_5s": 18.6}},
-  "a0_calm_sky_noiseaug_s0":     {"train": {"pos_1s": 0.77, "pos_5s": 10.4, "att_5s": 17.5}, "test": {"pos_1s": 0.92, "pos_5s": 17.3, "att_5s": 25.3}}
+  "mlp_direct_calm_sky": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": {
+    "pos_1s": [
+     0.73,
+     0.73,
+     0.73
+    ],
+    "pos_5s": [
+     6.0,
+     6.2,
+     5.9
+    ],
+    "att_1s": [
+     1.4,
+     1.5,
+     1.5
+    ],
+    "att_5s": [
+     7.0,
+     7.0,
+     6.8
+    ]
+   },
+   "test": {
+    "pos_1s": [
+     0.79,
+     0.8,
+     0.79
+    ],
+    "pos_5s": [
+     11.8,
+     12.7,
+     13.1
+    ],
+    "att_1s": [
+     2.8,
+     2.9,
+     2.9
+    ],
+    "att_5s": [
+     16.8,
+     17.9,
+     19.5
+    ]
+   }
+  },
+  "mlp_direct_calm_sky_noiseaug": {
+   "train": {
+    "pos_1s": 0.76,
+    "pos_5s": 6.6,
+    "att_5s": 7.1
+   },
+   "test": {
+    "pos_1s": 0.87,
+    "pos_5s": 13.3,
+    "att_5s": 18.3
+   }
+  },
+  "a0_calm_sky_ctx8": {
+   "train": {
+    "pos_1s": 0.72,
+    "pos_5s": 8.1,
+    "att_5s": 12.0
+   },
+   "test": {
+    "pos_1s": 0.81,
+    "pos_5s": 11.8,
+    "att_5s": 16.3
+   }
+  },
+  "jepa_calm_sky_ctx8": {
+   "train": {
+    "pos_1s": 1.08,
+    "pos_5s": 17.1,
+    "att_5s": 27.5
+   },
+   "test": {
+    "pos_1s": 1.34,
+    "pos_5s": 19.2,
+    "att_5s": 28.1
+   }
+  },
+  "c_jepa_calm_sky_ctx8_nul": {
+   "train": {
+    "pos_1s": 0.77,
+    "pos_5s": 8.0,
+    "att_5s": 10.1
+   },
+   "test": {
+    "pos_1s": 1.05,
+    "pos_5s": 20.6,
+    "att_5s": 28.3
+   }
+  },
+  "c_jepa_calm_sky_a0_ctx8_nul": {
+   "train": {
+    "pos_1s": 0.73,
+    "pos_5s": 6.0,
+    "att_5s": 7.4
+   },
+   "test": {
+    "pos_1s": 0.82,
+    "pos_5s": 11.1,
+    "att_5s": 14.4
+   }
+  },
+  "a0_calm_sky_s0": {
+   "train": {
+    "pos_1s": 0.73,
+    "pos_5s": 11.8,
+    "att_5s": 20.8
+   },
+   "test": {
+    "pos_1s": 0.82,
+    "pos_5s": 19.0,
+    "att_5s": 31.7
+   }
+  },
+  "jepa_calm_sky_s0": {
+   "train": {
+    "pos_1s": 1.24,
+    "pos_5s": 15.2,
+    "att_5s": 23.1
+   },
+   "test": {
+    "pos_1s": 1.53,
+    "pos_5s": 17.8,
+    "att_5s": 25.1
+   }
+  },
+  "c_jepa_calm_sky_nul_s0": {
+   "train": {
+    "pos_1s": 0.77,
+    "pos_5s": 8.3,
+    "att_5s": 10.0
+   },
+   "test": {
+    "pos_1s": 1.04,
+    "pos_5s": 22.9,
+    "att_5s": 31.1
+   }
+  },
+  "c_jepa_calm_sky_a0_s0": {
+   "train": {
+    "pos_1s": 0.73,
+    "pos_5s": 11.2,
+    "att_5s": 17.8
+   },
+   "test": {
+    "pos_1s": 0.85,
+    "pos_5s": 19.5,
+    "att_5s": 33.2
+   }
+  },
+  "c_direct_calm_sky_nul_s0": {
+   "train": {
+    "pos_1s": 0.72,
+    "pos_5s": 5.9,
+    "att_5s": 6.8
+   },
+   "test": {
+    "pos_1s": 0.83,
+    "pos_5s": 12.2,
+    "att_5s": 18.6
+   }
+  },
+  "a0_calm_sky_noiseaug_s0": {
+   "train": {
+    "pos_1s": 0.77,
+    "pos_5s": 10.4,
+    "att_5s": 17.5
+   },
+   "test": {
+    "pos_1s": 0.92,
+    "pos_5s": 17.3,
+    "att_5s": 25.3
+   }
+  }
  },
-
  "noise_open_loop": {
   "_about": "median normalized state RMSE over the first 1 s vs i.i.d. Gaussian noise sigma (in units of each state's std) added to the past states; key noise_robustness of eval_skyjepa. Other models: results/<run>/eval_skyjepa_test_long.json.",
-  "sigma": [0, 0.05, 0.1, 0.2, 0.5],
-  "mlp_direct_calm_sky_s0": {"train": [0.045, 0.072, 0.113, 0.202, 0.473], "test": [0.099, 0.115, 0.153, 0.237, 0.501]},
-  "mlp_direct_calm_sky_s1": {"train": [0.044, 0.069, 0.109, 0.192, 0.444], "test": [0.104, 0.117, 0.151, 0.227, 0.479]}
+  "sigma": [
+   0,
+   0.05,
+   0.1,
+   0.2,
+   0.5
+  ],
+  "mlp_direct_calm_sky_s0": {
+   "train": [
+    0.045,
+    0.072,
+    0.113,
+    0.202,
+    0.473
+   ],
+   "test": [
+    0.099,
+    0.115,
+    0.153,
+    0.237,
+    0.501
+   ]
+  },
+  "mlp_direct_calm_sky_s1": {
+   "train": [
+    0.044,
+    0.069,
+    0.109,
+    0.192,
+    0.444
+   ],
+   "test": [
+    0.104,
+    0.117,
+    0.151,
+    0.227,
+    0.479
+   ]
+  }
  },
-
  "probe_r2": {
   "_about": "R^2 of an MLP reader predicting each aircraft parameter from a representation, on the extreme (test) aircraft; history = 11 steps (0.55 s). raw window value is on training-range aircraft (probe_aircraft history 0.55 s, states + commands).",
-  "params": ["motor", "cg", "mass", "CL"],
-  "raw_window_states_commands": {"motor": 0.65, "cg": 0.89, "mass": 0.60, "CL": 0.64},
-  "a0_z_t":            {"motor": -0.01, "cg": -0.01, "mass": 0.63, "CL": 0.53},
-  "a0_z_t+1":          {"motor": 0.49,  "cg": 0.75,  "mass": 0.63, "CL": 0.57},
-  "jepa_z_t":          {"motor": -0.00, "cg": 0.02,  "mass": 0.53, "CL": 0.44},
-  "jepa_z_t+1":        {"motor": 0.09,  "cg": 0.30,  "mass": 0.51, "CL": 0.44},
-  "a0_acth1_z_t":      {"motor": 0.68,  "cg": 0.87,  "mass": 0.61, "CL": 0.54},
-  "jepa_acth1_z_t":    {"motor": 0.14,  "cg": 0.33,  "mass": 0.53, "CL": 0.44},
-  "a0_ctx8_c":         {"motor": 0.58,  "cg": 0.88,  "mass": 0.60, "CL": 0.52},
-  "jepa_ctx8_c":       {"motor": 0.13,  "cg": 0.18,  "mass": 0.21, "CL": 0.17},
-  "a0_ctx8_z_t+1":     {"motor": 0.54,  "cg": 0.73,  "mass": 0.56, "CL": 0.50},
-  "jepa_ctx8_z_t+1":   {"motor": -0.02, "cg": 0.12,  "mass": 0.49, "CL": 0.43}
+  "params": [
+   "motor",
+   "cg",
+   "mass",
+   "CL"
+  ],
+  "raw_window_states_commands": {
+   "motor": 0.65,
+   "cg": 0.89,
+   "mass": 0.6,
+   "CL": 0.64
+  },
+  "a0_z_t": {
+   "motor": -0.01,
+   "cg": -0.01,
+   "mass": 0.63,
+   "CL": 0.53
+  },
+  "a0_z_t+1": {
+   "motor": 0.49,
+   "cg": 0.75,
+   "mass": 0.63,
+   "CL": 0.57
+  },
+  "jepa_z_t": {
+   "motor": -0.0,
+   "cg": 0.02,
+   "mass": 0.53,
+   "CL": 0.44
+  },
+  "jepa_z_t+1": {
+   "motor": 0.09,
+   "cg": 0.3,
+   "mass": 0.51,
+   "CL": 0.44
+  },
+  "a0_acth1_z_t": {
+   "motor": 0.68,
+   "cg": 0.87,
+   "mass": 0.61,
+   "CL": 0.54
+  },
+  "jepa_acth1_z_t": {
+   "motor": 0.14,
+   "cg": 0.33,
+   "mass": 0.53,
+   "CL": 0.44
+  },
+  "a0_ctx8_c": {
+   "motor": 0.58,
+   "cg": 0.88,
+   "mass": 0.6,
+   "CL": 0.52
+  },
+  "jepa_ctx8_c": {
+   "motor": 0.13,
+   "cg": 0.18,
+   "mass": 0.21,
+   "CL": 0.17
+  },
+  "a0_ctx8_z_t+1": {
+   "motor": 0.54,
+   "cg": 0.73,
+   "mass": 0.56,
+   "CL": 0.5
+  },
+  "jepa_ctx8_z_t+1": {
+   "motor": -0.02,
+   "cg": 0.12,
+   "mass": 0.49,
+   "CL": 0.43
+  }
  },
-
  "closed_loop": {
   "_about": "MPPI (30 steps = 1.5 s, 256 samples, lam 0.1, w_du 0.5) with each learned model, TECS autopilot as reference; environment seed 1 (MPPI was tuned on seed 0); 100 training-range + 100 extreme aircraft, 60 s each. survival = aircraft still flying at the end; V, h, phi = tracking RMS [m/s, m, deg] over the aircraft that every controller of the run keeps alive (n_common). diff_ci = paired difference to c_jepa_calm_sky_nul_s0 with a bootstrap 95% interval.",
-  "gauss_0.5": {"n": 200, "n_common": 177, "controllers": {
-    "tecs":                   {"survival": 200, "V": 1.75, "h": 9.38, "phi": 5.05, "dV_ci": [0.512, 0.611]},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.25, "h": 7.69, "phi": 6.15, "dV": 0.056, "dV_ci": [0.025, 0.089], "dh": -0.219, "dh_ci": [-0.376, -0.063], "dphi": 0.536, "dphi_ci": [0.481, 0.592]},
-    "a0_calm_sky_s0":         {"survival": 177, "V": 1.72, "h": 8.36, "phi": 7.42, "mcnemar_p": 0.000},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.24, "h": 7.86, "phi": 6.03, "dV": 0.042, "dV_ci": [0.018, 0.068], "dphi": 0.411, "dphi_ci": [0.370, 0.454]},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.19, "h": 7.91, "phi": 5.62},
-    "c_jepa_calm_sky_a0_s0":  {"survival": 200, "V": 1.46, "h": 8.02, "phi": 6.63, "dV": 0.267, "dV_ci": [0.230, 0.303], "dphi": 1.016, "dphi_ci": [0.948, 1.081]}}},
-  "dropout_0.3": {"n": 200, "n_common": 197, "controllers": {
-    "tecs":                   {"survival": 200, "V": 1.45, "h": 8.00, "phi": 4.02},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.00, "h": 7.23, "phi": 4.99, "dV": -0.050, "dV_ci": [-0.071, -0.029]},
-    "a0_calm_sky_s0":         {"survival": 197, "V": 0.99, "h": 7.21, "phi": 4.99},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 0.97, "h": 7.30, "phi": 4.88, "dV": -0.086, "dV_ci": [-0.103, -0.069]},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.05, "h": 7.55, "phi": 4.85},
-    "c_jepa_calm_sky_a0_s0":  {"survival": 200, "V": 0.98, "h": 7.31, "phi": 4.87, "dV": -0.076, "dV_ci": [-0.093, -0.060]}}},
-  "gauss_1.0": {"n": 200, "n_common": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 2.45, "h": 11.34, "phi": 7.51},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.77, "h": 9.16, "phi": 8.15},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.74, "h": 9.79, "phi": 7.87},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.67, "h": 9.00, "phi": 7.25},
-    "c_jepa_calm_sky_a0_s0": {"survival": 200, "V": 2.27, "h": 10.36, "phi": 8.64},
-    "c_jepa_calm_sky_ctx8_nul_s0": {"survival": 200, "V": 1.59, "h": 9.46, "phi": 7.26},
-    "c_jepa_calm_sky_a0_ctx8_nul_s0": {"survival": 200, "V": 1.71, "h": 12.32, "phi": 7.71}}},
-  "colored_0.5": {"n": 200, "n_common": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 1.96, "h": 8.75, "phi": 8.41},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.69, "h": 8.12, "phi": 8.64},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.64, "h": 8.11, "phi": 8.68},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.59, "h": 8.25, "phi": 8.50},
-    "c_jepa_calm_sky_a0_s0": {"survival": 200, "V": 1.63, "h": 8.01, "phi": 8.78},
-    "c_jepa_calm_sky_ctx8_nul_s0": {"survival": 200, "V": 1.57, "h": 8.32, "phi": 8.47},
-    "c_jepa_calm_sky_a0_ctx8_nul_s0": {"survival": 200, "V": 1.64, "h": 7.86, "phi": 8.49}}},
-  "bias_0.5": {"n": 200, "n_common": 199, "controllers": {
-    "tecs": {"survival": 200, "V": 2.19, "h": 9.06, "phi": 8.14},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.85, "h": 10.69, "phi": 8.42},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.76, "h": 10.06, "phi": 8.33},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.70, "h": 10.10, "phi": 8.33},
-    "c_jepa_calm_sky_a0_s0": {"survival": 200, "V": 1.74, "h": 9.57, "phi": 8.35},
-    "c_jepa_calm_sky_ctx8_nul_s0": {"survival": 199, "V": 1.69, "h": 10.12, "phi": 8.34},
-    "c_jepa_calm_sky_a0_ctx8_nul_s0": {"survival": 200, "V": 1.77, "h": 9.57, "phi": 8.29}}},
-  "turb_moderate": {"n": 200, "n_common": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 1.60, "h": 8.68, "phi": 4.12},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.29, "h": 7.54, "phi": 5.17},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.17, "h": 9.96, "phi": 4.98},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.29, "h": 10.64, "phi": 4.94},
-    "c_jepa_calm_sky_a0_s0": {"survival": 200, "V": 1.16, "h": 9.73, "phi": 4.96},
-    "c_jepa_calm_sky_ctx8_nul_s0": {"survival": 200, "V": 1.27, "h": 10.75, "phi": 4.94},
-    "c_jepa_calm_sky_a0_ctx8_nul_s0": {"survival": 200, "V": 1.18, "h": 9.58, "phi": 4.92}}},
-  "turb_severe": {"n": 200, "n_common": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 1.80, "h": 9.87, "phi": 4.14},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.63, "h": 8.44, "phi": 5.40},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.37, "h": 13.85, "phi": 5.08},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.49, "h": 15.04, "phi": 5.01},
-    "c_jepa_calm_sky_a0_s0": {"survival": 200, "V": 1.36, "h": 13.34, "phi": 5.11},
-    "c_jepa_calm_sky_ctx8_nul_s0": {"survival": 200, "V": 1.47, "h": 15.28, "phi": 5.03},
-    "c_jepa_calm_sky_a0_ctx8_nul_s0": {"survival": 200, "V": 1.39, "h": 13.01, "phi": 5.00}}},
-  "noise_trained_gauss_1.0": {"_about": "separate run (runs/closed_loop_filter), same seed and aircraft", "n": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 2.43, "h": 11.07, "phi": 7.51},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.76, "h": 8.82, "phi": 8.15},
-    "mlp_direct_calm_sky_noiseaug_s0": {"survival": 200, "V": 1.20, "h": 7.44, "phi": 6.08},
-    "a0_calm_sky_noiseaug_s0": {"survival": 193, "V": 1.21, "h": 7.58, "phi": 6.05, "mcnemar_p": 0.016},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.73, "h": 9.21, "phi": 7.87},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.67, "h": 8.49, "phi": 7.25}}},
-  "noise_trained_turb_severe": {"n": 200, "controllers": {
-    "tecs": {"survival": 200, "V": 1.75, "h": 9.66, "phi": 4.10},
-    "mlp_direct_calm_sky_s0": {"survival": 200, "V": 1.56, "h": 7.90, "phi": 5.33},
-    "mlp_direct_calm_sky_noiseaug_s0": {"survival": 200, "V": 1.62, "h": 9.42, "phi": 5.63},
-    "a0_calm_sky_noiseaug_s0": {"survival": 188, "V": 1.58, "h": 10.08, "phi": 5.68, "mcnemar_p": 0.000},
-    "c_direct_calm_sky_nul_s0": {"survival": 200, "V": 1.34, "h": 13.56, "phi": 5.02},
-    "c_jepa_calm_sky_nul_s0": {"survival": 200, "V": 1.45, "h": 14.67, "phi": 4.96}}},
-  "pending": "equal noise training: denoising JEPA (jepa --input-noise 0.5) -> c_jepa with noise, vs c_direct and MLP trained with the same noise; tested on unseen noise kinds. Running."
+  "gauss_0.5": {
+   "n": 200,
+   "n_common": 177,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.75,
+     "h": 9.38,
+     "phi": 5.05,
+     "dV_ci": [
+      0.512,
+      0.611
+     ]
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.25,
+     "h": 7.69,
+     "phi": 6.15,
+     "dV": 0.056,
+     "dV_ci": [
+      0.025,
+      0.089
+     ],
+     "dh": -0.219,
+     "dh_ci": [
+      -0.376,
+      -0.063
+     ],
+     "dphi": 0.536,
+     "dphi_ci": [
+      0.481,
+      0.592
+     ]
+    },
+    "a0_calm_sky_s0": {
+     "survival": 177,
+     "V": 1.72,
+     "h": 8.36,
+     "phi": 7.42,
+     "mcnemar_p": 0.0
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.24,
+     "h": 7.86,
+     "phi": 6.03,
+     "dV": 0.042,
+     "dV_ci": [
+      0.018,
+      0.068
+     ],
+     "dphi": 0.411,
+     "dphi_ci": [
+      0.37,
+      0.454
+     ]
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.19,
+     "h": 7.91,
+     "phi": 5.62
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 1.46,
+     "h": 8.02,
+     "phi": 6.63,
+     "dV": 0.267,
+     "dV_ci": [
+      0.23,
+      0.303
+     ],
+     "dphi": 1.016,
+     "dphi_ci": [
+      0.948,
+      1.081
+     ]
+    }
+   }
+  },
+  "dropout_0.3": {
+   "n": 200,
+   "n_common": 197,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.45,
+     "h": 8.0,
+     "phi": 4.02
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.0,
+     "h": 7.23,
+     "phi": 4.99,
+     "dV": -0.05,
+     "dV_ci": [
+      -0.071,
+      -0.029
+     ]
+    },
+    "a0_calm_sky_s0": {
+     "survival": 197,
+     "V": 0.99,
+     "h": 7.21,
+     "phi": 4.99
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 0.97,
+     "h": 7.3,
+     "phi": 4.88,
+     "dV": -0.086,
+     "dV_ci": [
+      -0.103,
+      -0.069
+     ]
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.05,
+     "h": 7.55,
+     "phi": 4.85
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 0.98,
+     "h": 7.31,
+     "phi": 4.87,
+     "dV": -0.076,
+     "dV_ci": [
+      -0.093,
+      -0.06
+     ]
+    }
+   }
+  },
+  "gauss_1.0": {
+   "n": 200,
+   "n_common": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 2.45,
+     "h": 11.34,
+     "phi": 7.51
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.77,
+     "h": 9.16,
+     "phi": 8.15
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.74,
+     "h": 9.79,
+     "phi": 7.87
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.67,
+     "h": 9.0,
+     "phi": 7.25
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 2.27,
+     "h": 10.36,
+     "phi": 8.64
+    },
+    "c_jepa_calm_sky_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.59,
+     "h": 9.46,
+     "phi": 7.26
+    },
+    "c_jepa_calm_sky_a0_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.71,
+     "h": 12.32,
+     "phi": 7.71
+    }
+   }
+  },
+  "colored_0.5": {
+   "n": 200,
+   "n_common": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.96,
+     "h": 8.75,
+     "phi": 8.41
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.69,
+     "h": 8.12,
+     "phi": 8.64
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.64,
+     "h": 8.11,
+     "phi": 8.68
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.59,
+     "h": 8.25,
+     "phi": 8.5
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 1.63,
+     "h": 8.01,
+     "phi": 8.78
+    },
+    "c_jepa_calm_sky_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.57,
+     "h": 8.32,
+     "phi": 8.47
+    },
+    "c_jepa_calm_sky_a0_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.64,
+     "h": 7.86,
+     "phi": 8.49
+    }
+   }
+  },
+  "bias_0.5": {
+   "n": 200,
+   "n_common": 199,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 2.19,
+     "h": 9.06,
+     "phi": 8.14
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.85,
+     "h": 10.69,
+     "phi": 8.42
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.76,
+     "h": 10.06,
+     "phi": 8.33
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.7,
+     "h": 10.1,
+     "phi": 8.33
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 1.74,
+     "h": 9.57,
+     "phi": 8.35
+    },
+    "c_jepa_calm_sky_ctx8_nul_s0": {
+     "survival": 199,
+     "V": 1.69,
+     "h": 10.12,
+     "phi": 8.34
+    },
+    "c_jepa_calm_sky_a0_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.77,
+     "h": 9.57,
+     "phi": 8.29
+    }
+   }
+  },
+  "turb_moderate": {
+   "n": 200,
+   "n_common": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.6,
+     "h": 8.68,
+     "phi": 4.12
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.29,
+     "h": 7.54,
+     "phi": 5.17
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.17,
+     "h": 9.96,
+     "phi": 4.98
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.29,
+     "h": 10.64,
+     "phi": 4.94
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 1.16,
+     "h": 9.73,
+     "phi": 4.96
+    },
+    "c_jepa_calm_sky_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.27,
+     "h": 10.75,
+     "phi": 4.94
+    },
+    "c_jepa_calm_sky_a0_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.18,
+     "h": 9.58,
+     "phi": 4.92
+    }
+   }
+  },
+  "turb_severe": {
+   "n": 200,
+   "n_common": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.8,
+     "h": 9.87,
+     "phi": 4.14
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.63,
+     "h": 8.44,
+     "phi": 5.4
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.37,
+     "h": 13.85,
+     "phi": 5.08
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.49,
+     "h": 15.04,
+     "phi": 5.01
+    },
+    "c_jepa_calm_sky_a0_s0": {
+     "survival": 200,
+     "V": 1.36,
+     "h": 13.34,
+     "phi": 5.11
+    },
+    "c_jepa_calm_sky_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.47,
+     "h": 15.28,
+     "phi": 5.03
+    },
+    "c_jepa_calm_sky_a0_ctx8_nul_s0": {
+     "survival": 200,
+     "V": 1.39,
+     "h": 13.01,
+     "phi": 5.0
+    }
+   }
+  },
+  "noise_trained_gauss_1.0": {
+   "_about": "separate run (runs/closed_loop_filter), same seed and aircraft",
+   "n": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 2.43,
+     "h": 11.07,
+     "phi": 7.51
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.76,
+     "h": 8.82,
+     "phi": 8.15
+    },
+    "mlp_direct_calm_sky_noiseaug_s0": {
+     "survival": 200,
+     "V": 1.2,
+     "h": 7.44,
+     "phi": 6.08
+    },
+    "a0_calm_sky_noiseaug_s0": {
+     "survival": 193,
+     "V": 1.21,
+     "h": 7.58,
+     "phi": 6.05,
+     "mcnemar_p": 0.016
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.73,
+     "h": 9.21,
+     "phi": 7.87
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.67,
+     "h": 8.49,
+     "phi": 7.25
+    }
+   }
+  },
+  "noise_trained_turb_severe": {
+   "n": 200,
+   "controllers": {
+    "tecs": {
+     "survival": 200,
+     "V": 1.75,
+     "h": 9.66,
+     "phi": 4.1
+    },
+    "mlp_direct_calm_sky_s0": {
+     "survival": 200,
+     "V": 1.56,
+     "h": 7.9,
+     "phi": 5.33
+    },
+    "mlp_direct_calm_sky_noiseaug_s0": {
+     "survival": 200,
+     "V": 1.62,
+     "h": 9.42,
+     "phi": 5.63
+    },
+    "a0_calm_sky_noiseaug_s0": {
+     "survival": 188,
+     "V": 1.58,
+     "h": 10.08,
+     "phi": 5.68,
+     "mcnemar_p": 0.0
+    },
+    "c_direct_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.34,
+     "h": 13.56,
+     "phi": 5.02
+    },
+    "c_jepa_calm_sky_nul_s0": {
+     "survival": 200,
+     "V": 1.45,
+     "h": 14.67,
+     "phi": 4.96
+    }
+   }
+  },
+  "pending": "done: see equal_noise_training",
+  "equal_noise_training": {
+   "_about": "runs/closed_loop_equal (2026-11-12): equal noise training. *_noiseaug and c_jepa_calm_sky_dn_nul (denoising JEPA trunk: jepa --input-noise 0.5, then physics head with --input-noise 0.5) were trained with Gaussian noise 0.5 on the past states; colored, bias, dropout and turbulence were never seen in training. Same MPPI, env seed 1, 200 aircraft; RMS over aircraft every controller kept (n_common not printed; c_jepa_dn lost 1 aircraft under bias). One training seed per model.",
+   "gauss_1.0": {
+    "controllers": {
+     "tecs": {
+      "survival": 200,
+      "V": 2.45,
+      "h": 11.34,
+      "phi": 7.51
+     },
+     "mlp_direct_calm_sky_s0": {
+      "survival": 200,
+      "V": 1.77,
+      "h": 9.16,
+      "phi": 8.15
+     },
+     "mlp_direct_calm_sky_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.22,
+      "h": 7.6,
+      "phi": 6.08
+     },
+     "c_direct_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.74,
+      "h": 9.79,
+      "phi": 7.87
+     },
+     "c_direct_calm_sky_nul_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.31,
+      "h": 7.99,
+      "phi": 6.85
+     },
+     "c_jepa_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.67,
+      "h": 9.0,
+      "phi": 7.25
+     },
+     "c_jepa_calm_sky_dn_nul_s0": {
+      "survival": 200,
+      "V": 1.55,
+      "h": 8.37,
+      "phi": 7.02
+     }
+    }
+   },
+   "colored_0.5": {
+    "controllers": {
+     "tecs": {
+      "survival": 200,
+      "V": 1.96,
+      "h": 8.75,
+      "phi": 8.41
+     },
+     "mlp_direct_calm_sky_s0": {
+      "survival": 200,
+      "V": 1.69,
+      "h": 8.12,
+      "phi": 8.64
+     },
+     "mlp_direct_calm_sky_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.56,
+      "h": 8.02,
+      "phi": 7.71
+     },
+     "c_direct_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.64,
+      "h": 8.11,
+      "phi": 8.68
+     },
+     "c_direct_calm_sky_nul_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.55,
+      "h": 7.89,
+      "phi": 8.57
+     },
+     "c_jepa_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.59,
+      "h": 8.25,
+      "phi": 8.5
+     },
+     "c_jepa_calm_sky_dn_nul_s0": {
+      "survival": 200,
+      "V": 1.75,
+      "h": 8.07,
+      "phi": 8.65
+     }
+    }
+   },
+   "bias_0.5": {
+    "controllers": {
+     "tecs": {
+      "survival": 200,
+      "V": 2.19,
+      "h": 9.06,
+      "phi": 8.14
+     },
+     "mlp_direct_calm_sky_s0": {
+      "survival": 200,
+      "V": 1.85,
+      "h": 10.69,
+      "phi": 8.42
+     },
+     "mlp_direct_calm_sky_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.66,
+      "h": 9.91,
+      "phi": 7.85
+     },
+     "c_direct_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.76,
+      "h": 10.06,
+      "phi": 8.33
+     },
+     "c_direct_calm_sky_nul_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.63,
+      "h": 9.51,
+      "phi": 8.38
+     },
+     "c_jepa_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.7,
+      "h": 10.1,
+      "phi": 8.33
+     },
+     "c_jepa_calm_sky_dn_nul_s0": {
+      "survival": 199,
+      "V": 1.86,
+      "h": 9.46,
+      "phi": 8.42
+     }
+    }
+   },
+   "dropout_0.3": {
+    "controllers": {
+     "tecs": {
+      "survival": 200,
+      "V": 1.46,
+      "h": 8.05,
+      "phi": 4.04
+     },
+     "mlp_direct_calm_sky_s0": {
+      "survival": 200,
+      "V": 1.01,
+      "h": 7.25,
+      "phi": 5.02
+     },
+     "mlp_direct_calm_sky_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.06,
+      "h": 7.45,
+      "phi": 4.95
+     },
+     "c_direct_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 0.98,
+      "h": 7.35,
+      "phi": 4.9
+     },
+     "c_direct_calm_sky_nul_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.04,
+      "h": 7.36,
+      "phi": 4.93
+     },
+     "c_jepa_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.06,
+      "h": 7.58,
+      "phi": 4.88
+     },
+     "c_jepa_calm_sky_dn_nul_s0": {
+      "survival": 200,
+      "V": 1.21,
+      "h": 7.42,
+      "phi": 4.93
+     }
+    }
+   },
+   "turb_severe": {
+    "controllers": {
+     "tecs": {
+      "survival": 200,
+      "V": 1.8,
+      "h": 9.87,
+      "phi": 4.14
+     },
+     "mlp_direct_calm_sky_s0": {
+      "survival": 200,
+      "V": 1.63,
+      "h": 8.44,
+      "phi": 5.4
+     },
+     "mlp_direct_calm_sky_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.66,
+      "h": 9.86,
+      "phi": 5.69
+     },
+     "c_direct_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.37,
+      "h": 13.85,
+      "phi": 5.08
+     },
+     "c_direct_calm_sky_nul_noiseaug_s0": {
+      "survival": 200,
+      "V": 1.61,
+      "h": 12.51,
+      "phi": 5.16
+     },
+     "c_jepa_calm_sky_nul_s0": {
+      "survival": 200,
+      "V": 1.49,
+      "h": 15.04,
+      "phi": 5.01
+     },
+     "c_jepa_calm_sky_dn_nul_s0": {
+      "survival": 200,
+      "V": 1.9,
+      "h": 12.68,
+      "phi": 5.28
+     }
+    }
+   }
+  }
  },
-
  "skyjepa_table3": {
   "_about": "Rao et al., arXiv 2606.23444v2, Table III (quadrotor, horizon not stated): position RMSE [m], attitude error [deg].",
-  "Predictive": [8.80, 53.4], "Predictive + Physics Reg.": [7.12, 49.1], "Reconstruction + Prober": [6.82, 45.2],
-  "Reconstruction + PI Prober": [1.53, 5.28], "JEPA + Prober": [5.56, 40.20], "JEPA + PI Prober": [1.43, 4.71]
+  "Predictive": [
+   8.8,
+   53.4
+  ],
+  "Predictive + Physics Reg.": [
+   7.12,
+   49.1
+  ],
+  "Reconstruction + Prober": [
+   6.82,
+   45.2
+  ],
+  "Reconstruction + PI Prober": [
+   1.53,
+   5.28
+  ],
+  "JEPA + Prober": [
+   5.56,
+   40.2
+  ],
+  "JEPA + PI Prober": [
+   1.43,
+   4.71
+  ]
+ },
+ "open_loop_unseen_noise": {
+  "_about": "eval_skyjepa --noise-kinds gauss bias colored dropout (2026-11-12): median normalized 1-s state RMSE at level 0.5 (dropout: loss probability 0.5); 5-s position RMSE [m]; seed 0.",
+  "train": {
+   "mlp_direct_calm_sky_s0": {
+    "pos_5s": 6.0,
+    "noise0": 0.045,
+    "bias0.5": 0.447,
+    "colored0.5": 0.485,
+    "dropout0.5": 0.06
+   },
+   "mlp_direct_calm_sky_noiseaug_s0": {
+    "pos_5s": 6.6,
+    "noise0": 0.065,
+    "bias0.5": 0.375,
+    "colored0.5": 0.352,
+    "dropout0.5": 0.072
+   },
+   "c_direct_calm_sky_nul_s0": {
+    "pos_5s": 5.9,
+    "noise0": 0.051,
+    "bias0.5": 0.451,
+    "colored0.5": 0.535,
+    "dropout0.5": 0.064
+   },
+   "c_direct_calm_sky_nul_noiseaug_s0": {
+    "pos_5s": 7.2,
+    "noise0": 0.065,
+    "bias0.5": 0.382,
+    "colored0.5": 0.369,
+    "dropout0.5": 0.073
+   },
+   "c_jepa_calm_sky_nul_s0": {
+    "pos_5s": 8.3,
+    "noise0": 0.087,
+    "bias0.5": 0.433,
+    "colored0.5": 0.44,
+    "dropout0.5": 0.099
+   },
+   "c_jepa_calm_sky_dn_nul_s0": {
+    "pos_5s": 10.4,
+    "noise0": 0.11,
+    "bias0.5": 0.376,
+    "colored0.5": 0.358,
+    "dropout0.5": 0.117
+   }
+  },
+  "test": {
+   "mlp_direct_calm_sky_s0": {
+    "pos_5s": 11.8,
+    "noise0": 0.099,
+    "bias0.5": 0.466,
+    "colored0.5": 0.515,
+    "dropout0.5": 0.11
+   },
+   "mlp_direct_calm_sky_noiseaug_s0": {
+    "pos_5s": 13.3,
+    "noise0": 0.138,
+    "bias0.5": 0.413,
+    "colored0.5": 0.392,
+    "dropout0.5": 0.145
+   },
+   "c_direct_calm_sky_nul_s0": {
+    "pos_5s": 12.2,
+    "noise0": 0.116,
+    "bias0.5": 0.477,
+    "colored0.5": 0.559,
+    "dropout0.5": 0.129
+   },
+   "c_direct_calm_sky_nul_noiseaug_s0": {
+    "pos_5s": 16.5,
+    "noise0": 0.16,
+    "bias0.5": 0.426,
+    "colored0.5": 0.422,
+    "dropout0.5": 0.168
+   },
+   "c_jepa_calm_sky_nul_s0": {
+    "pos_5s": 22.9,
+    "noise0": 0.279,
+    "bias0.5": 0.539,
+    "colored0.5": 0.554,
+    "dropout0.5": 0.295
+   },
+   "c_jepa_calm_sky_dn_nul_s0": {
+    "pos_5s": 20.2,
+    "noise0": 0.287,
+    "bias0.5": 0.49,
+    "colored0.5": 0.489,
+    "dropout0.5": 0.3
+   }
+  }
  }
 }

@@ -22,7 +22,7 @@ simulator. Independent project for *Physics-Inspired Machine Learning*, UC Berke
 - Inside an MPPI controller that picks the commands, the model gives 34% less airspeed error than the TECS autopilot
   (1.00 against 1.52 m/s), and all 40 aircraft keep flying at every sensor-noise level tested.
 
-[Detailed results](docs/RESULTS.md) · [Implementation](docs/IMPLEMENTATION.md) · [Earlier experiments](results/README.md) ·
+[Poster (PDF)](poster/poster.pdf) · [Detailed results](docs/RESULTS.md) · [Implementation](docs/IMPLEMENTATION.md) · [Earlier experiments](results/README.md) ·
 Related: [Fixed-Wing](https://github.com/clementdumeril/Fixed-Wing), [GeneticWing](https://github.com/clementdumeril/GeneticWing)
 
 ## How it works

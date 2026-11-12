@@ -32,7 +32,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.data.windows import AIRCRAFT, ORACLE  # noqa: E402
@@ -48,21 +47,27 @@ AIRCRAFT_VALUES = dict(mass=2.16, Ixx=0.25, Iyy=0.15, Izz=0.38, Ixz=0.0)
 
 
 def read(folder, topic):
+    """{column: float array} of a topic CSV, sorted by timestamp without duplicates (empty fields: NaN)."""
     f = sorted(folder.glob(f"*_{topic}.csv"))
     if not f:
         raise FileNotFoundError(f"{folder.name}: no {topic}")
-    d = pd.read_csv(f[0])
-    return d.sort_values("timestamp").drop_duplicates("timestamp")
+    with open(f[0]) as fh:
+        names = fh.readline().strip().split(",")
+    a = np.genfromtxt(f[0], delimiter=",", skip_header=1, dtype=np.float64, invalid_raise=False)
+    a = np.atleast_2d(a)
+    _, keep = np.unique(a[:, names.index("timestamp")], return_index=True)
+    a = a[keep]
+    return {n: a[:, i] for i, n in enumerate(names)}
 
 
 def lin(d, col, t):
-    return np.interp(t, d["timestamp"].values * 1e-6, d[col].values.astype(np.float64))
+    return np.interp(t, d["timestamp"] * 1e-6, d[col])
 
 
 def hold(d, col, t):
-    ts = d["timestamp"].values * 1e-6
+    ts = d["timestamp"] * 1e-6
     i = np.clip(np.searchsorted(ts, t, side="right") - 1, 0, len(ts) - 1)
-    return d[col].values.astype(np.float64)[i]
+    return d[col][i]
 
 
 def euler(qw, qx, qy, qz):
@@ -84,8 +89,8 @@ def ned_to_body(phi, theta, psi, vn, ve, vd):
 def lap(folder):
     """(K, len(CHANNELS)) float32 on a 20 Hz grid for one lap folder."""
     d = {k: read(folder, k) for k in TOPICS}
-    t0 = max(x["timestamp"].iloc[0] for x in d.values()) * 1e-6
-    t1 = min(x["timestamp"].iloc[-1] for x in d.values()) * 1e-6
+    t0 = max(x["timestamp"][0] for x in d.values()) * 1e-6
+    t1 = min(x["timestamp"][-1] for x in d.values()) * 1e-6
     t = np.arange(t0, t1, DT)
     att, av, lp, wd, sv, mo = (d[k] for k in TOPICS)
     q = np.stack([lin(att, f"q[{i}]", t) for i in range(4)])

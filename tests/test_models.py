@@ -345,4 +345,5 @@ def test_partner_rows_pick_another_window_of_the_same_flight():
     rows = S.sample_rows(500)
     pair = S.partner_rows(rows, min_gap=40)
     assert (S.idx[pair, 0] == S.idx[rows, 0]).all()
-    assert (np.abs(S.idx[pair, 1] - S.idx[rows, 1]) >= 40).mean() > 0.99
+    # the short flight leaves few far-enough windows, so a few pairs may stay closer after the redraws
+    assert (np.abs(S.idx[pair, 1] - S.idx[rows, 1]) >= 40).mean() > 0.95

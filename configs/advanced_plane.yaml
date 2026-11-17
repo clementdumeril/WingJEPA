@@ -1,0 +1,114 @@
+# PX4 advanced_plane (PX4-gazebo-models, models/advanced_plane/model.sdf), as Gazebo (gz-sim) simulates it:
+# AdvancedLiftDrag system (AVL coefficients + post-stall blend), MulticopterMotorModel puller propeller, PX4 SITL
+# output mapping (motor 10-1600 rad/s, servos +-1 -> +-45 deg).
+# Every nominal value is copied from Fixed-Wing/cpp/include/fixed_wing/dynamics.h (namespace advanced, l. 126-146,
+# and advanced_plane(), l. 148-178). Simulator: wingjepa/sim/advanced_plane.py (frames and signs documented there).
+# SI units, radians unless stated otherwise.
+
+aircraft: advanced_plane
+
+# --- mass and inertia (advanced_plane(), l. 150-156) ------------------------------------------------------------------
+mass: 1.005                    # kg: base link 1 kg + propeller 5 g
+Ixx: 0.197563975               # kg m2: 0.197563 + 9.75e-07 (propeller about its axis)
+Iyy: 0.146509604               # 0.1458929 + 0.000166704 + 0.005 * 0.3^2 (propeller, parallel axis)
+Izz: 0.148317604               # 0.1477 + 0.000167604 + 0.005 * 0.3^2
+Ixz: 0.0                       # diagonal tensor in the SDF (kept for the UltraStick interface; FLU = FRD for it)
+g: 9.8                         # m/s2, Gazebo's default world (not 9.80665)
+
+# --- air -----------------------------------------------------------------------------------------------------------
+rho: 1.2041                    # kg/m3, advanced::density: Gazebo's constant air density (no altitude dependence)
+density_model: constant        # constant (as Gazebo) | isa (1976 troposphere, ultrastick.isa_density(h))
+
+# --- geometry (advanced::area, mac, AR) ----------------------------------------------------------------------------
+S: 0.34                        # m2, wing area
+c: 0.22                        # m, mean aerodynamic chord
+AR: 6.5                        # aspect ratio
+b: 1.4866068747318506          # m, span = sqrt(S AR) (recomputed in the code, as in the C++)
+cp: -0.12                      # m, centre of pressure on body x (forward +): 12 cm behind the centre of mass
+
+# --- AdvancedLiftDrag coefficients (advanced::, l. 127-142), FRD stability-derivative convention -----------------------
+# attached flow: per rad; rate terms per (p b / 2V), (q c / 2V), (r b / 2V)
+CL0: 0.15188
+CLa: 5.015
+CD0: 0.029
+eff: 0.97                      # Oswald efficiency of the induced drag CL^2 / (pi AR eff)
+Cm0: 0.075
+Cma: -0.463966
+CYb: -0.258244
+Clb: -0.039250                 # Cell_beta in the C++ (rolling moment)
+Cnb: 0.100826
+CDp: 0.0
+CYp: 0.065861
+CLp: 0.0
+Clp: -0.487407
+Cmp: 0.0
+Cnp: -0.040416
+CDq: 0.055166
+CYq: 0.0
+CLq: 7.971792
+Clq: 0.0
+Cmq: -12.140140
+Cnq: 0.0
+CDr: 0.0
+CYr: 0.230299
+CLr: 0.0
+Clr: 0.078165
+Cmr: 0.0
+Cnr: -0.089947
+# stall: sigma = (1 + e^-M(a - a_s) + e^M(a + a_s)) / ((1 + e^-M(a - a_s)) (1 + e^M(a + a_s))), 0 attached, 1 stalled
+alpha_stall: 0.3391428111      # rad (19.43 deg)
+M: 15.0                        # blending sharpness (AdvancedLiftDrag default)
+Cma_stall: 0.0                 # Cm slope beyond the stall (Cm frozen at its stall value)
+CD_fp_k1: -0.224               # flat-plate drag after the stall: 2 / (1 + exp(k1 + k2 max(AR, 1/AR)))
+CD_fp_k2: -0.115
+# control derivatives per DEGREE of joint angle, times the joint direction, for the joints
+# [servo_0 (left elevon), servo_1 (right elevon), servo_2 (elevator), servo_3 (rudder)], C++ / Gazebo signs.
+# The simulator maps WingJEPA's (de, da, dr) to these joints, see advanced_plane.py (JOINTS).
+CD_ctrl: [-0.000059, -0.000059, -0.000274, 0.0]
+CY_ctrl: [0.000171, -0.000171, 0.0, -0.003913]
+CL_ctrl: [-0.011940, -0.011940, -0.010696, 0.0]
+Cl_ctrl: [-0.003331, 0.003331, 0.0, -0.000257]
+Cm_ctrl: [0.001498, 0.001498, 0.025798, 0.0]
+Cn_ctrl: [-0.000057, 0.000057, 0.0, 0.001613]
+
+# --- propeller: MulticopterMotorModel (advanced::, l. 143-145; advanced_plane(), l. 162-166) -------------------------
+rotor_x: 0.3                   # m, propeller 0.3 m ahead of the centre of mass, thrust along body x
+omega_min: 10.0                # rad/s at throttle 0 (SIM_GZ_EC_MIN1)
+omega_max: 1600.0              # rad/s at throttle 1 (SIM_GZ_EC_MAX1)
+motor_constant: 8.54858e-06    # N s2: thrust = k omega^2 (21.9 N at 1600 rad/s)
+moment_constant: 0.01          # m: reaction torque about +x = moment_constant * thrust
+rotor_drag: 8.06428e-05        # N s / rad / (m/s): force -omega * rotor_drag * (air velocity across the axis)
+rolling_moment: 1.0e-06        # N m s / rad / (m/s): moment -omega * rolling_moment * (same velocity)
+motor_tau_up: 0.0125           # s, rotor-speed first-order lag when speeding up (timeConstantUp)
+motor_tau_down: 0.025          # s, when slowing down (timeConstantDown)
+
+# --- control surfaces -----------------------------------------------------------------------------------------------
+# Gazebo's joint position controller (gain 10) against the joint damping (1): first order, 0.1 s, no rate limit.
+# WingJEPA (UMN) conventions: de > 0 trailing edge down (nose down), da > 0 rolls left, dr > 0 trailing edge left
+# (yaws left). Order [de, da, dr] as UltraStick.
+servo_tau: 0.1                 # s
+act_max: [0.7853981633974483, 0.7853981633974483, 0.7853981633974483]      # rad (45 deg, servo +-1)
+act_min: [-0.7853981633974483, -0.7853981633974483, -0.7853981633974483]
+
+# --- per-flight randomization ([training range, extreme limit for the test aircraft], as data_calm.yaml) ---------------
+# Training aircraft: factor 1 + U(-r0, r0). Test aircraft: 1 +- U(r0, r1) (outside the training range).
+# advanced_plane.sample_overrides reads this section. Every corner of the extreme box trims at 12-18 m/s
+# (scripts/check_advanced_plane.py, tests/test_advanced_plane.py).
+randomization:
+  mass: [0.20, 0.35]           # battery / payload swap: +-200-350 g on a 1 kg airframe (3S 2200 mAh ~ 180 g)
+  inertia: [0.30, 0.45]        # Ixx, Iyy, Izz independently: mass placement; the SDF tensor is itself a rough guess
+  aero:                        # factors per coefficient group, independently (groups: advanced_plane.AERO_GROUPS)
+    CL: [0.15, 0.25]           # CL0, CLa, CLq: AVL lift slope vs. real low-Re wing (+-15-25 %)
+    CD: [0.25, 0.40]           # CD0 and induced factor, CDq: the drag is the least known (AVL has no profile drag)
+    CY: [0.20, 0.30]           # CYb, CYp, CYr: fuselage side area, not modelled by AVL
+    Cl: [0.20, 0.30]           # Clb, Clp, Clr: dihedral effect and roll damping
+    Cm: [0.20, 0.30]           # Cm0, Cma: camber / incidence, fuselage contribution (the cp lever arm dominates Cm_alpha)
+    Cmq: [0.20, 0.30]          # pitch damping (tail volume, downwash lag)
+    Cn: [0.20, 0.30]           # Cnb, Cnp, Cnr: fin size, fuselage destabilizing yaw
+    de: [0.20, 0.30]           # elevator effectiveness (all 6 coefficients of the elevator column): throw, linkage play
+    da: [0.20, 0.30]           # elevon-as-aileron effectiveness
+    dr: [0.20, 0.30]           # rudder effectiveness
+  motor_k: [0.20, 0.35]        # motor constant k (thrust and torque): propeller choice, battery sag (V^2 ~ -25 %)
+  cg_shift: [0.10, 0.20]       # fraction of the chord, + aft (cp -> cp + cg_shift c): +-2.2 / 4.4 cm of battery
+                               # placement; the static margin of the model is 0.64 c, still stable at 0.44 c
+  servo_tau: [0.30, 0.50]      # servo time constant 0.1 s x factor: real hobby servos 0.05-0.15 s

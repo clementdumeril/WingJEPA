@@ -1,0 +1,141 @@
+# Dataset data_advanced_turb: the turbulent twin of data_advanced (PX4's advanced_plane, 1 kg). Same seed, sets and
+# shards: the random draws happen in the same order (turbulence level and gust times are drawn in both, the Dryden
+# noise is drawn at every step in both), so each flight has the same aircraft, steady wind, references and
+# excitations as its calm twin, plus Dryden turbulence and (1 - cos) gusts as in data_v1, scaled to this airplane.
+# Everything else (pilot, protection, ranges): see data_advanced.yaml.
+name: data_advanced_turb
+seed: 20261117
+out_dir: data                   # relative to the working directory (jobs run from the repo root)
+split: [0.8, 0.1, 0.1]          # train / val / test, drawn per flight ("train" set only)
+
+sets:
+  smoke:     {n_flights: 12,    duration_s: 10, test_aircraft_fraction: 0.5}   # end-to-end check of the pipeline
+  train:     {n_flights: 20000, duration_s: 10, test_aircraft_fraction: 0.0}   # 55.6 h, as SkyJEPA
+  test_long: {n_flights: 400,   duration_s: 60, test_aircraft_fraction: 0.5}   # 6.7 h, half extreme aircraft
+
+sim:
+  dt: 0.01                      # RK4 step (100 Hz), as the C++ / Gazebo-matched model (servo 0.1 s, rotor 12.5 ms)
+  dt_record: 0.05               # recording and commands (20 Hz)
+  warmup_s: 10                  # settling at trim under autopilot, not recorded (> 1 phugoid period of 8 s)
+  h0_range: [150, 300]          # m (constant air density: the altitude only matters for the protection)
+  trim_retry_V: 15.0            # m/s, cruise speed: trim retried there if V0 fails (never seen on the extreme box)
+  # envelope exit = loss of control: the flight is frozen at its last valid state. The Gazebo model is defined
+  # past the stall (flat-plate blend, Cm frozen), but it is Gazebo's guess there: frozen beyond 25 deg
+  limits: {Va_min: 4.0, Va_max: 35.0, alpha_max_deg: 25, alpha_min_deg: -20, beta_max_deg: 25,
+           phi_max_deg: 75, theta_max_deg: 80, h_min: 20}
+
+aircraft:
+  config: configs/advanced_plane.yaml   # AdvancedPlane (generate_flights.make_aircraft switches on its `aircraft` key)
+  ranges:                       # [training, limit for the test aircraft] = advanced_plane.yaml randomization
+    mass: [0.20, 0.35]          # battery / payload swap on a 1 kg airframe
+    inertia: [0.30, 0.45]       # Ixx, Iyy, Izz independently (diagonal tensor)
+    aero:                       # factors per coefficient group (advanced_plane.AERO_GROUPS)
+      CL: [0.15, 0.25]          # CL0, CLa, CLq
+      CD: [0.25, 0.40]          # CD0, induced factor, CDq: least known
+      CY: [0.20, 0.30]
+      Cl: [0.20, 0.30]
+      Cm: [0.20, 0.30]          # Cm0, Cma
+      Cmq: [0.20, 0.30]
+      Cn: [0.20, 0.30]
+      de: [0.20, 0.30]          # control effectiveness, per surface
+      da: [0.20, 0.30]
+      dr: [0.20, 0.30]
+    motor_k: [0.20, 0.35]       # motor constant (thrust and torque)
+    cg_shift: [0.10, 0.20]      # fraction of chord, + aft (static margin 0.64 c nominal, >= 0.44 c at the limit)
+    servo_tau: [0.30, 0.50]     # servo time constant 0.1 s x factor
+
+wind:
+  steady_horizontal_max: 6.0    # m/s, random direction (only displaces): <= 0.6 x the slowest cruise (10 m/s)
+  steady_vertical_max: 1.0      # m/s, updraft or downdraft (a 1 kg glider sinks ~1.2 m/s: kept below it)
+  # Dryden (MIL-F-8785C low altitude): sigma_w = 0.77 / 1.54 / 2.3 m/s for light / moderate / severe, a property of
+  # the air, but the angle of attack it causes scales as sigma_w / V: at 10-22 m/s it is 1.5-2x what the Ultra Stick
+  # feels at 15-28 m/s. Severe (+-9 deg rms at 15 m/s, past the 11 deg protection from a 1-5 deg trim) is dropped
+  # and moderate made rarer than in data_v1 (none .25, light .35, moderate .25, severe .15)
+  turbulence_probs: {none: 0.3, light: 0.45, moderate: 0.25, severe: 0.0}
+  gust_rate_per_min: 3          # (1 - cos) gusts, as data_v1
+  gust_duration_s: [1.0, 5.0]
+  gust_amplitude_max: 2.0       # m/s per axis: data_v1's 3 m/s at ~22 m/s, same fraction of the airspeed at 15 m/s
+  estimate_tau_s: 2.0           # estimated wind: low-pass (same estimator as data_calm)
+  estimate_bias_sigma: 0.3      # m/s, slow estimator bias (data_calm 0.5 at 15-28 m/s, scaled to 10-22 m/s)
+  estimate_bias_T_s: 20.0
+
+pilot:
+  type_probs: [0.15, 0.30, 0.30, 0.25]   # steady, excitation, TECS setpoints, random (as data_calm)
+  V_range: [10.0, 22.0]         # m/s: 1.5 x the 1 g stall (6.5) up to ~1.5 x cruise (PX4 FW_AIRSPD_MAX-like)
+  ref_hold_s: [3.0, 8.0]        # 10 s flights: 1-3 setpoints per flight (data_calm 4-12 s for 30 s flights)
+  ref_dh_max: 30.0              # m: a few seconds of climb at 2-3 m/s
+  exc_width_s: [0.15, 0.6]      # unit of the multistep: spans the short period (0.36 s) and dutch roll (0.85 s);
+                                # the 0.1 s servo filters faster ones
+  exc_elev_deg: [1.0, 3.5]      # 1 deg elevator = 0.46 deg alpha = 0.2 g at 15 m/s: up to ~0.7 g (1.4 g at 22 m/s)
+  exc_thr: [0.05, 0.2]          # 0.1 throttle = +1.1 N = 0.11 g of thrust at cruise
+  exc_ail_deg: [1.0, 4.0]       # 1 deg aileron = 16 deg/s steady roll rate at 15 m/s
+  exc_rud_deg: [1.0, 4.0]       # 1 deg rudder = 0.9 deg steady sideslip
+  exc_free_s: 2.5               # open loop extended after the maneuver (~ 1/3 phugoid period)
+  exc_gap_s: [2.0, 5.0]         # 10 s flights: start of the next maneuver
+  rand_tau_s: [0.2, 1.5]        # smoothed random commands, correlation time
+  rand_elev_deg: [0.5, 2.5]
+  rand_thr: [0.05, 0.15]
+  rand_ail_deg: [0.5, 2.5]
+  rand_rud_deg: [0.5, 2.5]
+  rand_openloop_per_min: 6      # ~1 open-loop window per 10 s flight
+  rand_openloop_s: [1.0, 3.0]
+  engine_off_prob: 0.5
+  engine_off_per_min: 3         # ~half of the flights of type "engine off" glide in a 10 s window
+  engine_off_s: [3.0, 8.0]
+  lateral:
+    mode_probs: [0.3, 0.35, 0.35]   # straight line, turns and circles, S-turns
+    turn_hold_s: [3.0, 10.0]
+    bank_deg: [10.0, 40.0]      # 40 deg: load factor 1.3, stall 7.4 m/s, below the protection V_min
+    s_bank_deg: [10.0, 30.0]
+    s_period_s: [6.0, 20.0]     # at least half an S-turn in a 10 s flight
+    bank_min_lim_deg: 20.0      # max bank at 10 m/s (n 1.06, stall 6.7 m/s) ...
+    bank_lim_V: [10.0, 14.0]    # ... rising to bank_deg[1] at 14 m/s
+    # roll: 1 rad aileron -> 132 rad/s2 at 15 m/s against a roll damping of 8.4 1/s: k_phi 0.15 gives a ~4.4 rad/s
+    # bank loop (PX4 FW_R_TC 0.4 s: 90 % of a 30 deg step in 1.3 s), k_p 0.04 damps the slow-servo, weak-aileron
+    # corner (UltraStick's 0.8 / 0.15 would be 5x too strong: the elevons are very effective on 0.2 kg m2);
+    # yaw damper and sideslip feedback against the 0.25-damped dutch roll (1 rad rudder -> 43 rad/s2 against a
+    # weathercock stiffness of 46 1/s2: k_beta 0.6 adds ~55 %). No integrator: 1-2 deg steady bank error
+    gains: {k_phi: 0.15, k_p: 0.04, k_r: 0.12, k_beta: 0.6}
+  protection:                   # like an autopilot envelope protection
+    V_min: 8.5                  # m/s: 1.3 x the 1 g stall speed
+    V_max: 27.0                 # overspeed (dive): 1.8 x cruise
+    alpha_max_deg: 11.0         # CL 1.0 of 1.15 max (15.5 deg): margin for turbulence and the flat stall blend
+    alpha_min_deg: -6.0         # negative angle of attack
+    phi_max_deg: 55.0
+    theta_max_deg: 40.0         # excessive dive or pull-up
+    beta_max_deg: 15.0          # AVL derivatives: linear in beta, keep moderate
+    h_min: 60.0                 # m, close to the ground
+    filter_tau_s: 0.5           # smoothing of the air data used by the protection
+    hold_s: 3.0                 # duration of the recovery
+    V_target: 14.0              # target speed during the recovery (near cruise)
+  tecs:                         # see scripts/tune_advanced_pilot.py for the step responses
+    k_h: 0.05                   # gamma_ref per m of altitude error: time constant 1 / (k_h V) = 1.3 s at 15 m/s
+    gamma_max: 0.15             # climb / sink up to 2.3 m/s at 15 m/s (PX4 FW_T_CLMB_MAX 5, SINK_MIN 2)
+    k_V: 0.5                    # vdot_ref per m/s of speed error: 2 s (PX4 FW_T_TAS_TC 5 s, faster here)
+    vdot_max: 1.5               # m/s2: 0.15 g, 1.5 N of the ~12 N of excess thrust at cruise
+    vdot_tau: 0.3               # s, filter of the airspeed derivative
+    thr_0: 0.25                 # (unused: the trim throttle is the feed-forward) PX4 FW_THR_TRIM
+    k_TP: 0.9                   # throttle per specific energy rate: W / (dT/dthr) = 9.85 N / 11 N at cruise
+    k_TI: 0.5                   # the trim throttle changes by 0.09 from 12 to 18 m/s: the integrator supplies it
+    I_T_max: 0.3
+    theta_0: 0.02
+    k_DP: 0.8                   # pitch per energy-distribution error (~ 1: theta follows gamma)
+    k_DI: 0.3                   # the trim elevator changes by 5 deg from 12 to 18 m/s (large static margin):
+    I_D_max: 0.35               # the pitch integrator absorbs it (theta error 0.1-0.2 rad otherwise)
+    theta_glide_0: -0.06        # glide pitch: gamma -0.09 (L/D ~ 11 at 11-12 m/s) + alpha 0.03
+    k_GP: 0.03                  # rad of pitch per m/s of speed error in the glide
+    k_GI: 0.01
+    theta_cmd_max: 0.35         # 20 deg
+    k_th: 0.7                   # elevator per rad of pitch error: ~5 rad/s attitude loop (gamma_dot 6.9 k_th); 0.9
+                                # leaves pitch limit cycles in ~3 % of the extreme corners, 1.0 a divergence
+    k_q: 0.15                   # elevator per rad/s of pitch rate (as UltraStick): below 0.1, 2-10 % of the extreme
+                                # corners (light, slow servos, weak Cm) keep a pitch limit cycle under the TECS
+    alpha_floor_deg: -5.0       # angle-of-attack limiter (filtered angle of attack)
+    alpha_ceil_deg: 10.0        # CL 0.95: below the protection threshold
+    k_alpha: 0.5                # 0.5 rad elevator per rad of alpha excess: the elevator is strong (Cm_de -1.48 /rad
+                                # against a pitch stiffness of -3.2 /rad), half of UltraStick's 1.0
+
+closed_loop:                    # scripts/closed_loop.py (MPPI test): targets and envelope penalties for this airplane
+  V_range: [11.0, 19.0]         # m/s, airspeed targets (Ultra Stick: 17-25)
+  alpha_max: 0.17               # rad (10 deg)
+  V_min: 9.0                    # m/s

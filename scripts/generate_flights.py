@@ -1,8 +1,10 @@
-"""Generate a shard of 6DoF Ultra Stick 120 flights and write it as .npz + .json.
+"""Generate a shard of 6DoF flights and write it as .npz + .json.
 
 Usage: python scripts/generate_flights.py --config configs/data_v1.yaml --set train --shard 3 --n-shards 20
 Each shard has its own seed (seed + 1000 * set index + shard): shards are independent.
-Prerequisite: bash scripts/fetch_umn.sh (once).
+Aircraft: the `aircraft` key of the aircraft config named by the data config (aircraft.config) selects the
+simulator: advanced_plane (configs/advanced_plane.yaml, wingjepa/sim/advanced_plane.py) or, otherwise, the Ultra
+Stick 120 with the NASA tables (prerequisite: bash scripts/fetch_umn.sh, once).
 """
 import argparse
 import json
@@ -14,6 +16,7 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wingjepa.sim import advanced_plane  # noqa: E402
 from wingjepa.sim.pilot import LAT_NAMES, TECS, TYPE_NAMES, lateral, make_profiles  # noqa: E402
 from wingjepa.sim.ultrastick import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: E402
                                      FaserTables, UltraStick, dcm_body_to_ned, load_config)
@@ -54,13 +57,23 @@ def sample_overrides(rng, n, p, ranges, is_test):
                 power_scale=o["power_scale"], cg_shift=o["cg_shift"], aero_scale={k: o[k] for k in AERO})
 
 
+def make_aircraft(rng, n, p, ranges, is_test):
+    """Batch of aircraft with per-flight randomization: AdvancedPlane when the aircraft config says
+    `aircraft: advanced_plane` (ranges: the data config's aircraft.ranges, else the aircraft config's own
+    randomization section), else the Ultra Stick 120 (NASA tables). Returns (simulator, overrides)."""
+    if p.get("aircraft") == "advanced_plane":
+        ov = advanced_plane.sample_overrides(rng, n, p, ranges, is_test)
+        return advanced_plane.AdvancedPlane(p, n, None, ov), ov
+    tab = FaserTables(p["aero_file"])
+    ov = sample_overrides(rng, n, p, ranges, is_test)
+    return UltraStick(p, n, tab, ov), ov
+
+
 def simulate(rng, n, duration, n_test, cfg):
     sim, pil = cfg["sim"], cfg["pilot"]
     p = load_config(cfg["aircraft"]["config"])
-    tab = FaserTables(p["aero_file"])
     is_test = np.r_[np.zeros(n - n_test, bool), np.ones(n_test, bool)]
-    ov = sample_overrides(rng, n, p, cfg["aircraft"]["ranges"], is_test)
-    ac = UltraStick(p, n, tab, ov)
+    ac, ov = make_aircraft(rng, n, p, cfg["aircraft"].get("ranges"), is_test)
     g = p["g"]
 
     dt_sim, dt_ctrl = sim["dt"], sim["dt_record"]
@@ -71,7 +84,7 @@ def simulate(rng, n, duration, n_test, cfg):
     psi0 = rng.uniform(-np.pi, np.pi, n)
     Y, cmd0, thr0, trim_ok = ac.trim(V0, h=h0, psi=psi0)
     if not trim_ok.all():   # aircraft cannot be trimmed at V0 (e.g. too little power): retry at 18 m/s
-        V0 = np.where(trim_ok, V0, 18.0)
+        V0 = np.where(trim_ok, V0, sim.get("trim_retry_V", 18.0))
         Y2, c2, t2, ok2 = ac.trim(V0, h=h0, psi=psi0)
         Y, cmd0, thr0 = np.where(trim_ok[:, None], Y, Y2), np.where(trim_ok[:, None], cmd0, c2), np.where(trim_ok, thr0, t2)
         trim_ok = trim_ok | ok2
@@ -135,9 +148,11 @@ def simulate(rng, n, duration, n_test, cfg):
             eoff, freeze = eoff & ~protect, freeze & ~protect
             add = np.where(protect[:, None], 0.0, add)
 
-        # bank angle limited at low speed (the load factor of a turn brings the aircraft closer to stall)
+        # bank angle limited at low speed (the load factor of a turn brings the aircraft closer to stall):
+        # bank_min_lim_deg up to bank_lim_V[0], rising to bank_deg[1] at bank_lim_V[1] (default 15 -> 23 m/s)
+        V_lo, V_hi = pil["lateral"].get("bank_lim_V", (15.0, 23.0))
         bank_max = np.deg2rad(pil["lateral"]["bank_min_lim_deg"]) + np.deg2rad(
-            pil["lateral"]["bank_deg"][1] - pil["lateral"]["bank_min_lim_deg"]) * np.clip((Va - 15.0) / 8.0, 0, 1)
+            pil["lateral"]["bank_deg"][1] - pil["lateral"]["bank_min_lim_deg"]) * np.clip((Va - V_lo) / (V_hi - V_lo), 0, 1)
         phi_ref = np.clip(phi_ref, -bank_max, bank_max)
         de_c, thr_c = tecs(Va, am, gamma, th, Y[:, Q], q_ref, Y[:, H], h_ref, V_ref, eoff, freeze, dt_ctrl)
         da_c, dr_c = lateral(phi_ref, phi, Y[:, P], Y[:, R], r_ref, beta, lat_g, cmd0[:, 1], cmd0[:, 2])
@@ -190,7 +205,8 @@ def simulate(rng, n, duration, n_test, cfg):
     meta = dict(type=prof["types"], lat_mode=prof["lat"], is_test_aircraft=is_test, h0=h0, V0=V0,
                 trim_ok=trim_ok, mass=ov["mass"], Ixx=ov["Ixx"], Iyy=ov["Iyy"], Izz=ov["Izz"], Ixz=ov["Ixz"],
                 power_scale=ov["power_scale"], cg_shift=ov["cg_shift"],
-                **{f"aero_scale_{k}": ov["aero_scale"][k] for k in AERO},
+                **{f"aero_scale_{k}": v for k, v in ov["aero_scale"].items()},     # AERO (+ Cmq, de, da, dr)
+                **{k: ov[k] for k in ("servo_tau",) if k in ov},                    # advanced_plane only
                 wind_steady_n=wind.steady[:, 0], wind_steady_e=wind.steady[:, 1], wind_steady_d=wind.steady[:, 2],
                 turb_level=wind.turb_level, t_dead=t_dead)
     return rec, meta

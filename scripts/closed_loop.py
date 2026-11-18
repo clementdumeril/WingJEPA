@@ -42,7 +42,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import load_model  # noqa: E402
-from generate_flights import sample_overrides  # noqa: E402
+from generate_flights import make_aircraft  # noqa: E402
 from wingjepa.data.noise import KINDS, SensorNoise  # noqa: E402
 from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_CTRL, N_STATE  # noqa: E402
@@ -54,13 +54,14 @@ DT = 0.05
 LEVELS = ("none", "light", "moderate", "severe")
 
 
-def references(rng, n, K, h0, V0, seg_s=10.0):
-    """Piecewise-constant targets (n, K): altitude steps of +-25 m, airspeed 17-25 m/s, bank 0 / +-20 / +-30 deg."""
+def references(rng, n, K, h0, V0, seg_s=10.0, V_range=(17, 25)):
+    """Piecewise-constant targets (n, K): altitude steps of +-25 m, airspeed in V_range (default 17-25 m/s, the
+    Ultra Stick; data config closed_loop.V_range otherwise), bank 0 / +-20 / +-30 deg."""
     nseg = int(np.ceil(K * DT / seg_s))
     dh = rng.uniform(-25, 25, (n, nseg))
     dh[:, 0] = 0
     h_seg = h0[:, None] + np.cumsum(dh, 1)
-    V_seg = rng.uniform(17, 25, (n, nseg))
+    V_seg = rng.uniform(*V_range, (n, nseg))
     V_seg[:, 0] = V0
     phi_seg = rng.choice(np.deg2rad([0, 0, -20, 20, -30, 30]), (n, nseg))
     phi_seg[:, 0] = 0
@@ -79,19 +80,20 @@ class Flights:
         rng = np.random.default_rng(seed)
         n = n_train + n_test
         self.n, self.is_test = n, np.r_[np.zeros(n_train, bool), np.ones(n_test, bool)]
-        ov = sample_overrides(rng, n, p, cfg["aircraft"]["ranges"], self.is_test)
-        self.ac = us.UltraStick(p, n, us.FaserTables(p["aero_file"]), ov)
+        self.ac, ov = make_aircraft(rng, n, p, cfg["aircraft"].get("ranges"), self.is_test)   # UltraStick or AdvancedPlane
         self.params = np.stack([ov["mass"], ov["Ixx"], ov["Iyy"], ov["Izz"], ov["Ixz"]], 1).astype(np.float32)
         # same columns as windows.aircraft_params(meta, oracle=True); 5: only read by an oracle physics head
         extra = [ov["power_scale"], ov["cg_shift"]] + [ov["aero_scale"][k] for k in ("CD", "CY", "CL", "Cl", "Cm", "Cn")]
         extra = [(e - 1) / 0.3 for e in extra[:1]] + [extra[1] / 0.05] + [(e - 1) / 0.3 for e in extra[2:]]
         self.params = np.c_[self.params, np.stack(extra, 1)].astype(np.float32)
-        self.h0, self.V0 = rng.uniform(150, 300, n), rng.uniform(17, 25, n)
+        # flight envelope of the test (optional closed_loop section of the data config; defaults: Ultra Stick)
+        V_range = tuple(cfg.get("closed_loop", {}).get("V_range", (17, 25)))
+        self.h0, self.V0 = rng.uniform(150, 300, n), rng.uniform(*V_range, n)
         psi0 = rng.uniform(-np.pi, np.pi, n)
         self.Y, self.cmd0, self.thr0, ok = self.ac.trim(self.V0, h=self.h0, psi=psi0)
         self.warm = int(round(sim["warmup_s"] / DT))
         self.K = int(round(duration / DT))
-        self.h_ref, self.V_ref, self.phi_ref = references(rng, n, self.K, self.h0, self.V0)
+        self.h_ref, self.V_ref, self.phi_ref = references(rng, n, self.K, self.h0, self.V0, V_range=V_range)
         wcfg = dict(cfg["wind"], turbulence_probs={k: float(k == turbulence) for k in LEVELS},
                     gust_amplitude_max=float(gust))
         self.wind = Wind(np.random.default_rng(seed + 1), n, wcfg, sim["warmup_s"] + duration + 1)
@@ -196,6 +198,8 @@ class MPPIController:
         self.hi = torch.tensor(list(fl.p["act_max"]) + [1.0], device=dev, dtype=torch.float32)
         self.sigma = torch.tensor(a.sigma, device=dev, dtype=torch.float32)
         self.rho, self.lam, self.w_du = a.smooth, a.lam, a.w_du
+        cl = fl.cfg.get("closed_loop", {})                # envelope penalties (defaults: Ultra Stick)
+        self.alpha_max, self.V_min = float(cl.get("alpha_max", 0.19)), float(cl.get("V_min", 14.0))
         P = nominal_params(fl.params) if a.nominal_params else fl.params
         self.ac = torch.from_numpy(P).to(dev).repeat_interleave(self.N, 0)
         self.gen = torch.Generator(device=dev).manual_seed(a.seed + 3)
@@ -234,7 +238,7 @@ class MPPIController:
         relu = torch.relu
         J = (((hp - href).clamp(-15, 15) / 5) ** 2 + (hd - hd_ref) ** 2 + (Va - vref) ** 2
              + ((ph - pref) / 0.1) ** 2 + (be / 0.05) ** 2
-             + 50 * (relu(al - 0.19) / 0.02) ** 2 + 50 * relu(14.0 - Va) ** 2
+             + 50 * (relu(al - self.alpha_max) / 0.02) ** 2 + 50 * relu(self.V_min - Va) ** 2
              + 50 * (relu(ph.abs() - 0.9) / 0.05) ** 2 + 50 * (relu(th.abs() - 0.6) / 0.05) ** 2).mean(-1)
         up = torch.from_numpy(u_prev.astype(np.float32)).to(dev)[:, None, None]
         dU = torch.diff(torch.cat([up.expand(-1, N, -1, -1), Uc], 2), dim=2) / self.sigma

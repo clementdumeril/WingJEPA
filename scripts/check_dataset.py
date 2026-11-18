@@ -32,6 +32,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True)
     ap.add_argument("--set", required=True)
+    ap.add_argument("--g", type=float, default=G, help="gravity of the simulator (advanced_plane: 9.8, as Gazebo)")
     a = ap.parse_args()
     np.seterr(all="ignore")   # flights that left the envelope are excluded from the statistics
     D, ch, M = load(a.dir, a.set)
@@ -76,7 +77,7 @@ def main():
     p_, q_, r_ = c["p"], c["q"], c["r"]
     Erot = 0.5 * (Ixx * p_**2 + Iyy * q_**2 + Izz * r_**2) - Ixz * p_ * r_
     h_air = c["h"] + M["wind_steady_d"][:, None] * c["t"]
-    E = 0.5 * m * (c["u"]**2 + c["v"]**2 + c["w"]**2) + Erot + m * G * h_air
+    E = 0.5 * m * (c["u"]**2 + c["v"]**2 + c["w"]**2) + Erot + m * a.g * h_air
     Pw = ((c["Fx_aero"] + c["thrust"]) * c["u"] + c["Fy_aero"] * c["v"] + c["Fz_aero"] * c["w"]
           + (c["Mx_aero"] + c["Mx_prop"]) * p_ + (c["My_aero"] + c["My_prop"]) * q_ + (c["Mz_aero"] + c["Mz_prop"]) * r_)
     dE = (E[:, 2:] - E[:, :-2]) / (2 * dt)

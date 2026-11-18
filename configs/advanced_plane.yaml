@@ -112,3 +112,4 @@ randomization:
   cg_shift: [0.10, 0.20]       # fraction of the chord, + aft (cp -> cp + cg_shift c): +-2.2 / 4.4 cm of battery
                                # placement; the static margin of the model is 0.64 c, still stable at 0.44 c
   servo_tau: [0.30, 0.50]      # servo time constant 0.1 s x factor: real hobby servos 0.05-0.15 s
+  # not randomized: the rotor time constants (12.5 / 25 ms, far faster than the airframe), the geometry, the density

@@ -40,6 +40,19 @@ Control surfaces, WingJEPA / UMN conventions (as UltraStick and pilot.py, so the
 
 Not in the C++ model (zeros or Gazebo-consistent placeholders in forces(), see its docstring): advance ratio J,
 electrical motor power.
+
+Modelling decisions (validated with the project, 2026-11-17):
+  - placeholder channels kept in the datasets: J = 0, P_motor = P_shaft = moment_constant * T * omega (Gazebo's
+    reaction torque times the rotor speed, not a physical power: the propulsive efficiency it implies exceeds 1),
+    E_motor its integral. No feature of the world models reads them;
+  - the rotor time constants (12.5 ms up, 25 ms down) are not randomized (the C++ factor scaled them with the
+    servos); only the servo time constant is (servo_tau);
+  - the nominal aircraft has a slowly divergent spiral mode (+0.064 1/s at 15 m/s, doubling in ~11 s; up to
+    +0.1 1/s on the extreme corners): common for small airplanes, the lateral pilot closes the loop;
+  - trim() also solves bank, aileron and rudder (zero sideslip), so it holds the small propeller torque that the
+    C++ 3-unknown trim (pitch, elevator, throttle) ignores; the throttle is the same (0.248 at 15 m/s);
+  - the energy check of scripts/check_dataset.py (--g 9.8) misses the rotor-drag side forces, which are in F_prop and
+    not in the recorded Fy_aero / Fz_aero channels (a few hundredths of a newton).
 """
 import numpy as np
 

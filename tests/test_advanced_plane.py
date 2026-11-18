@@ -184,3 +184,25 @@ def test_extreme_corners_trim():
         Y, cmd, thr, ok = AdvancedPlane(CFG, n, overrides=o).trim(np.full(n, Vt))
         assert ok.all(), Vt
         assert np.all((thr > 0.05) & (thr < 0.6))
+
+
+def test_generator_switch_end_to_end():
+    """scripts/generate_flights.py flies the advanced_plane when the data config points to advanced_plane.yaml."""
+    import yaml
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import os
+    from generate_flights import CHANNELS, make_aircraft, simulate
+    cfg = yaml.safe_load(open(ROOT / "configs/data_advanced.yaml", encoding="utf-8"))
+    rng = np.random.default_rng(0)
+    p = load_config(ROOT / cfg["aircraft"]["config"])
+    ac, ov = make_aircraft(rng, 3, p, cfg["aircraft"]["ranges"], np.zeros(3, bool))
+    assert isinstance(ac, AdvancedPlane) and {"Ixz", "power_scale", "servo_tau"} <= set(ov)
+    cwd = os.getcwd()
+    os.chdir(ROOT)                                  # the data config names the aircraft config relative to the root
+    try:
+        rec, meta = simulate(np.random.default_rng(1), 4, 3.0, 2, cfg)
+    finally:
+        os.chdir(cwd)
+    assert rec.shape == (4, 60, len(CHANNELS)) and np.isfinite(rec).all()
+    assert meta["trim_ok"].all() and "aero_scale_de" in meta and "servo_tau" in meta
+    assert (rec[:, -1, CHANNELS.index("alive")] > 0.5).all()

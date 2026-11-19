@@ -1,5 +1,5 @@
 """Ground-truth 6-DoF simulator of the Ultra Stick 120 (FASER), vectorized over a batch of flights (archived study,
-archive/ultrastick/README.md; scripts/generate_flights.py imports it when the aircraft config names an Ultra Stick).
+archive/ultrastick/README.txt; scripts/generate_flights.py imports it when the aircraft config names an Ultra Stick).
 
 Python translation of UMNUAV_sim_v4 (University of Minnesota UAV Lab, BSD, Simulink 2011) :
   - aero (FASER_Aero_Lib.mdl): NASA Langley wind-tunnel tables (FASER_Aero.mat), linear

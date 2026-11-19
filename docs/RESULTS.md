@@ -1,7 +1,7 @@
 # Detailed results
 
 > These results come from the archived Ultra Stick 120 study. Its code is in
-> [`archive/ultrastick/`](../archive/ultrastick/README.md); the tag `ultrastick-final` has the code as it was
+> [`archive/ultrastick/`](../archive/ultrastick/README.txt); the tag `ultrastick-final` has the code as it was
 > for these runs, with the options since removed from the main code.
 
 Detail behind the [top-level README](../README.md). Implementation: [IMPLEMENTATION.md](IMPLEMENTATION.md). Earlier
@@ -110,7 +110,7 @@ Paths on main; at the tag `ultrastick-final` the archived files were in `wingjep
 ## Reproduce
 
 The commands below are those of the tag `ultrastick-final` (`git checkout ultrastick-final`). On main, the same steps
-with the archived paths are in [`archive/ultrastick/README.md`](../archive/ultrastick/README.md).
+with the archived paths are in [`archive/ultrastick/README.txt`](../archive/ultrastick/README.txt).
 
 Tested with Python 3.11 on Windows 10 (unit tests) and on Linux (training). Dependencies are not pinned.
 

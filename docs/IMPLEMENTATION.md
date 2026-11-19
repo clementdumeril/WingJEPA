@@ -2,7 +2,7 @@
 
 Detail moved out of the top-level README. The code now runs SkyJEPA's test suite on PX4's `advanced_plane`
 (components below). The sections after the table (models, checks, training runs, figures) describe the archived Ultra
-Stick 120 study, whose code is in [`archive/ultrastick/`](../archive/ultrastick/README.md) and in the tag
+Stick 120 study, whose code is in [`archive/ultrastick/`](../archive/ultrastick/README.txt) and in the tag
 `ultrastick-final`; their paths are those of the tag (on main, the Ultra Stick files keep their names under
 `archive/ultrastick/`). Results of that study: [RESULTS.md](RESULTS.md) and
 [`../results/README.md`](../results/README.md) (earlier setting).

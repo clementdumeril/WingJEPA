@@ -48,6 +48,41 @@ def make_aircraft(rng, n, p, ranges, is_test):
     raise ValueError(f"aircraft config: unknown aircraft {p.get('aircraft')!r} (advanced_plane, ultrastick120)")
 
 
+def draw_upsets(rng, n, c):
+    """Start of the recorded flight away from trim (sim.upset of the data config), for a fraction c["prob"] of
+    the flights: bank and pitch added to the trimmed attitude, airspeed scaled (kept in c["V_bounds"]), angle of
+    attack and sideslip added, body rates added. Each [lo, hi] is a magnitude with a random sign. Drawn after
+    every other draw, so a config without `upset` keeps its random sequence."""
+    on = rng.random(n) < c["prob"]
+    sym = lambda r: rng.uniform(*r, n) * rng.choice([-1.0, 1.0], n)
+    d = dict(dphi=np.deg2rad(sym(c["phi_deg"])), dtheta=np.deg2rad(sym(c["theta_deg"])),
+             dalpha=np.deg2rad(sym(c["alpha_deg"])), dbeta=np.deg2rad(sym(c["beta_deg"])),
+             dp=np.deg2rad(sym(c["p_dps"])), dq=np.deg2rad(sym(c["q_dps"])), dr=np.deg2rad(sym(c["r_dps"])))
+    d = {k: np.where(on, v, 0.0) for k, v in d.items()}
+    d["V_factor"] = np.where(on, rng.uniform(*c["V_factor"], n), 1.0)
+    d["on"] = on
+    return d
+
+
+def apply_upset(Y, d, V_bounds):
+    """Perturbed copy of the state Y (air-relative u, v, w rebuilt from the new Va, alpha, beta)."""
+    Y = Y.copy()
+    on = d["on"]
+    uvw = Y[:, U:W + 1]
+    Va = np.linalg.norm(uvw, axis=1)
+    al = np.arctan2(uvw[:, 2], uvw[:, 0]) + d["dalpha"]
+    be = np.arcsin(np.clip(uvw[:, 1] / Va, -1, 1)) + d["dbeta"]
+    Va = np.where(on, np.clip(Va * d["V_factor"], *V_bounds), Va)
+    new = np.stack([Va * np.cos(al) * np.cos(be), Va * np.sin(be), Va * np.sin(al) * np.cos(be)], 1)
+    Y[:, U:W + 1] = np.where(on[:, None], new, uvw)
+    Y[:, PHI] += d["dphi"]
+    Y[:, TH] += d["dtheta"]
+    Y[:, P] += d["dp"]
+    Y[:, Q] += d["dq"]
+    Y[:, R] += d["dr"]
+    return Y
+
+
 def simulate(rng, n, duration, n_test, cfg):
     sim, pil = cfg["sim"], cfg["pilot"]
     p = load_config(cfg["aircraft"]["config"])
@@ -71,6 +106,8 @@ def simulate(rng, n, duration, n_test, cfg):
     prof = make_profiles(rng, n, K, dt_ctrl, pil, h0, V0)
     tecs = TECS(n, pil["tecs"], thr_ff=thr0, theta_ff=Y[:, TH], de_ff=cmd0[:, 0], g=g)
     lim, prot, lat_g = sim["limits"], pil["protection"], pil["lateral"]["gains"]
+    up = sim.get("upset")                          # optional: recovery from an attitude far from trim
+    ups = draw_upsets(rng, n, up) if up else None
 
     alive = trim_ok.copy()
     t_dead = np.where(trim_ok, np.nan, -sim["warmup_s"])
@@ -88,6 +125,8 @@ def simulate(rng, n, duration, n_test, cfg):
 
     for kk in range(K_warm + K):
         k = kk - K_warm
+        if k == 0 and ups is not None:             # the upset happens when the recording starts
+            Y = np.where(alive[:, None], apply_upset(Y, ups, up["V_bounds"]), Y)
         gb, gn = gust_body(Y, t)
         F = ac.forces(Y, held[:, 3], gb)
         Va, alpha, beta = F["Va"], F["alpha"], F["beta"]
@@ -103,6 +142,8 @@ def simulate(rng, n, duration, n_test, cfg):
         # autopilot: turbulence spikes are ignored, genuine excursions out of the envelope are not.
         if kk == 0:
             air_f = np.stack([Va, alpha, beta], 1)
+        if k == 0 and ups is not None:             # the upset developed before the recording: filter settled on it
+            air_f = np.where(ups["on"][:, None], np.stack([Va, alpha, beta], 1), air_f)
         air_f += dt_ctrl / (prot["filter_tau_s"] + dt_ctrl) * (np.stack([Va, alpha, beta], 1) - air_f)
         Vm, am, bm = air_f.T
         trig = ((Vm < prot["V_min"]) | (Vm > prot["V_max"])
@@ -188,6 +229,8 @@ def simulate(rng, n, duration, n_test, cfg):
                 **{k: ov[k] for k in ("servo_tau",) if k in ov},                    # advanced_plane only
                 wind_steady_n=wind.steady[:, 0], wind_steady_e=wind.steady[:, 1], wind_steady_d=wind.steady[:, 2],
                 turb_level=wind.turb_level, t_dead=t_dead)
+    if ups is not None:
+        meta.update(upset=ups["on"], **{f"upset_{k}": v for k, v in ups.items() if k != "on"})
     return rec, meta
 
 

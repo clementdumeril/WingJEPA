@@ -13,7 +13,7 @@ The project now runs the test suite of SkyJEPA (Rao et al., arXiv 2606.23444) on
 fixed-wing model of the PX4 Gazebo simulation: the recipes of their Table III, the same metrics, and a closed-loop
 test. The runs are in progress on Savio.
 
-[Ultra Stick study (archived)](archive/ultrastick/README.md) · [Poster (PDF)](poster/poster.pdf) ·
+[Ultra Stick study (archived)](archive/ultrastick/README.txt) · [Poster (PDF)](poster/poster.pdf) ·
 [Implementation](docs/IMPLEMENTATION.md) · Related: [Fixed-Wing](https://github.com/clementdumeril/Fixed-Wing),
 [GeneticWing](https://github.com/clementdumeril/GeneticWing)
 
@@ -24,7 +24,9 @@ test. The runs are in progress on Savio.
   transliteration (`tools/compare_advanced_cpp/`).
 - Data: `configs/data_advanced.yaml`, SkyJEPA's volume: 20,000 training flights of 10 s and 400 test flights of 60 s
   at 20 Hz, flown by a TECS autopilot, each on a random aircraft (mass, inertia, aerodynamics, motor, CG, servos);
-  half of the test flights use aircraft outside the training ranges. `data_advanced_turb.yaml` adds turbulence.
+  half of the test flights use aircraft outside the training ranges. `data_advanced_turb.yaml` adds turbulence;
+  `data_advanced_upset.yaml` has 15 s flights, half of them starting in an upset (steep bank, nose high or low, slow
+  or fast) that the autopilot recovers from, in gusty air.
 - Model: causal TCN encoders read 0.55 s of history, a GRU rolls the latent state forward with the commands, and a
   head turns it into the next state: an MLP, or a physics head that outputs aerodynamic coefficients and integrates
   Newton-Euler with RK4.
@@ -69,7 +71,7 @@ to the same format.
 The first study flew a simulated Ultra Stick 120 (a port of the University of Minnesota 6-DoF model with NASA
 wind-tunnel tables). There, the physics head trained end to end predicted 5 s of flight within 5.8 m of position
 error, against 8.1 m for SkyJEPA's frozen physics probe and 14.3 m for the same network without physics.
-[Poster](poster/poster.pdf), [results](docs/RESULTS.md), [code and how to rerun it](archive/ultrastick/README.md)
+[Poster](poster/poster.pdf), [results](docs/RESULTS.md), [code and how to rerun it](archive/ultrastick/README.txt)
 (the tag `ultrastick-final` reproduces the poster).
 
 ## Limitations

@@ -9,7 +9,7 @@ from the <run>/eval_skyjepa_<set>.json files of scripts/eval_skyjepa.py (mean ov
                              c_jepa runs left out, their latent is the one of their frozen trunk
   stdout                     Table III: position RMSE [m] and attitude error [deg] at 1 s and --at-s seconds
 
-Usage: python scripts/plot_skyjepa.py --runs runs --out docs/figures/skyjepa
+Usage: python archive/ultrastick/scripts/plot_skyjepa.py --runs runs --out docs/figures/skyjepa
 """
 import argparse
 import json

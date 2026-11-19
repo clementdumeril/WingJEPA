@@ -1,4 +1,5 @@
-"""Ground-truth 6-DoF simulator of the Ultra Stick 120 (FASER), vectorized over a batch of flights.
+"""Ground-truth 6-DoF simulator of the Ultra Stick 120 (FASER), vectorized over a batch of flights (archived study,
+archive/ultrastick/README.md; scripts/generate_flights.py imports it when the aircraft config names an Ultra Stick).
 
 Python translation of UMNUAV_sim_v4 (University of Minnesota UAV Lab, BSD, Simulink 2011) :
   - aero (FASER_Aero_Lib.mdl): NASA Langley wind-tunnel tables (FASER_Aero.mat), linear
@@ -27,6 +28,7 @@ from wingjepa.sim.common import (DA, DE, DR, H, N_STATE, OM, P, PHI, PSI, Q, R, 
                                  dcm_body_to_ned, isa_density, load_config)
 
 D2R, R2D = np.pi / 180, 180 / np.pi
+AERO = ("CD", "CY", "CL", "Cl", "Cm", "Cn")
 
 
 class FaserTables:
@@ -251,3 +253,29 @@ class UltraStick:
         r, Y = residual(x)
         ok = np.abs(r).max(1) < 1e-6
         return Y, x[:, [1, 5, 6]], x[:, 2], ok
+
+
+def _factor(rng, m, r, test):
+    if not test:
+        return 1 + rng.uniform(-r[0], r[0], m)
+    return 1 + rng.choice([-1, 1], m) * rng.uniform(r[0], r[1], m)
+
+
+def sample_overrides(rng, n, p, ranges, is_test):
+    """Per-flight domain randomisation (multiplicative factors; offset for the CG position), data config ranges:
+    training aircraft 1 + U(-r0, r0), test aircraft 1 +- U(r0, r1)."""
+    keys = ["mass", "fIxx", "fIyy", "fIzz", "power_scale", "cg_shift"] + list(AERO)
+    out = {k: [] for k in keys}
+    for test in (False, True):
+        m = int((is_test == test).sum())
+        out["mass"].append(p["mass"] * _factor(rng, m, ranges["mass"], test))
+        for k in ("fIxx", "fIyy", "fIzz"):
+            out[k].append(_factor(rng, m, ranges["inertia"], test))
+        out["power_scale"].append(_factor(rng, m, ranges["motor"], test))
+        out["cg_shift"].append(_factor(rng, m, ranges["cg_shift"], test) - 1)
+        for k in AERO:
+            out[k].append(_factor(rng, m, ranges["aero"], test))
+    o = {k: np.concatenate(v) for k, v in out.items()}
+    return dict(mass=o["mass"], Ixx=p["Ixx"] * o["fIxx"], Iyy=p["Iyy"] * o["fIyy"], Izz=p["Izz"] * o["fIzz"],
+                Ixz=p["Ixz"] * np.sqrt(o["fIxx"] * o["fIzz"]),        # keeps the inertia matrix positive definite
+                power_scale=o["power_scale"], cg_shift=o["cg_shift"], aero_scale={k: o[k] for k in AERO})

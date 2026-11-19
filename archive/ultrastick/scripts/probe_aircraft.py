@@ -17,7 +17,7 @@ separately. Two readers: ridge regression (linear) and a small MLP.
             of the identification needs the commands
 
 Writes <out>.json and prints the R^2 tables. Usage:
-  python scripts/probe_aircraft.py --data-dir data/data_calm --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0 \
+  python archive/ultrastick/scripts/probe_aircraft.py --data-dir data/data_calm --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0 \
       runs/c_direct_calm_sky_nul_s0 --out results/probe_aircraft
 """
 import argparse
@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import load_model  # noqa: E402
 from wingjepa.data.windows import N_CTRL, N_STATE, ORACLE, aircraft_params, features, load_set, window_starts  # noqa: E402

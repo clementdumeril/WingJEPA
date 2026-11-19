@@ -2,7 +2,7 @@
 # randomization of mass, inertia, aerodynamics, motor or CG). Same seed, sets and shards: the random draws
 # happen in the same order (the aircraft factors are drawn in a zero range), so each flight has the same
 # wind, references and excitations as its data_calm twin. Both test groups hold the nominal aircraft.
-# Diagnostic: how much of the physics-head error comes from identifying the aircraft (scripts/probe_aircraft.py).
+# Diagnostic: how much of the physics-head error comes from identifying the aircraft (archive/ultrastick/scripts/probe_aircraft.py).
 name: data_calm_fixed
 seed: 20261019
 out_dir: data                   # relative to the working directory (jobs run from the repo root)
@@ -25,7 +25,7 @@ sim:
            phi_max_deg: 75, theta_max_deg: 80, h_min: 20}
 
 aircraft:
-  config: configs/ultrastick120.yaml   # Ultra Stick 120, NASA tables (scripts/fetch_umn.sh)
+  config: archive/ultrastick/configs/ultrastick120.yaml   # Ultra Stick 120, NASA tables (archive/ultrastick/scripts/fetch_umn.sh)
   ranges:                       # [training, limit for the test aircraft]
     mass: [0.0, 0.0]            # one aircraft: every range is zero
     inertia: [0.0, 0.0]

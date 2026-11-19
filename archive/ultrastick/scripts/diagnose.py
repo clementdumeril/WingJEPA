@@ -13,7 +13,7 @@ Q3. Why does no model generalize to extreme aircraft?
       its nominal value, on the test aircraft;
     - which quantities degrade at 1 s between training aircraft and test aircraft.
 
-Usage: python scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
+Usage: python archive/ultrastick/scripts/diagnose.py --data-dir <out_dir>/data_v1 --models runs/a0_T100_s0 runs/jepa_T100_s0
 """
 import argparse
 import json
@@ -25,7 +25,7 @@ import numpy as np
 import torch
 from scipy.stats import spearmanr
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, errors, load_model, make_rollouts, predict, useful_horizon  # noqa: E402
 from wingjepa.data.windows import (N_STATE, STATE, WindowSampler, aircraft_params, features,  # noqa: E402

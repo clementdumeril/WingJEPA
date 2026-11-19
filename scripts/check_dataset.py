@@ -14,7 +14,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.sim.pilot import LAT_NAMES, TYPE_NAMES  # noqa: E402
 
-G = 9.80665   # same as configs/ultrastick120.yaml
+G = 9.80665   # standard gravity (the archived Ultra Stick configs); advanced_plane: --g 9.8
 DEG = 180 / np.pi
 
 

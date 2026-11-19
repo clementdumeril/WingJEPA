@@ -1,4 +1,4 @@
-"""Validation of the 6DoF port of the UMN simulator (wingjepa/sim/ultrastick.py).
+"""Validation of the 6DoF port of the UMN simulator (archive/ultrastick/ultrastick.py).
 
 1. Ultra Stick 25e: our simulation against the reference trajectories of their nonlinear Simulink
    simulator (Simulation/NL_Sim/example1.m):
@@ -9,7 +9,7 @@
 2. Ultra Stick 120 (FASER, NASA tables): table readback, trims from 14 to 30 m/s, responses
    to elevator, aileron and rudder doublets, engine-off glide.
 
-Usage: python scripts/validate_ultrastick.py --umn-dir <UMNUAV_sim_v4 folder> [--out runs/validation]
+Usage: python archive/ultrastick/scripts/validate_ultrastick.py --umn-dir <UMNUAV_sim_v4 folder> [--out runs/validation]
 """
 import argparse
 import sys
@@ -21,8 +21,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.io import loadmat
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wingjepa.sim.ultrastick import (DA, DE, DR, H, N_STATE, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from archive.ultrastick.ultrastick import (DA, DE, DR, H, N_STATE, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: E402
                                      FaserTables, UltraStick, load_config)
 
 D2R = np.pi / 180
@@ -36,7 +36,7 @@ def run_25e(umn, fname, blocks):
     tr = loadmat(umn / "Simulation/Libraries/UAV_trimcondition.mat", squeeze_me=True,
                  struct_as_record=False)["TrimCondition"]
     t_ref, x_ref = ref["tsim"], ref["xsim"]
-    p = load_config("configs/ultrastick25e_validation.yaml")
+    p = load_config("archive/ultrastick/configs/ultrastick25e_validation.yaml")
     ac = UltraStick(p, 1)
     trim = np.array([tr.Inputs.elevator, tr.Inputs.aileron, tr.Inputs.rudder], float)
     thr = float(tr.Inputs.throttle)
@@ -95,7 +95,7 @@ def validate_25e(umn, out):
 
 
 def validate_faser(out):
-    p = load_config("configs/ultrastick120.yaml")
+    p = load_config("archive/ultrastick/configs/ultrastick120.yaml")
     tab = FaserTables(p["aero_file"])
     m = loadmat(p["aero_file"], squeeze_me=True, struct_as_record=False)
     b = m["C6_bas"]

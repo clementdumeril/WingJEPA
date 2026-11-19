@@ -8,7 +8,7 @@ is the integral of the predicted vertical speed. Truth: the simulator's north, e
 The "constant state" baseline goes through the same integration with the last measured state held.
 
 Writes <model_dir>/eval_position_<set>.json and prints the RMS position error at 1, 5, 10 and 20 s.
-Usage: python scripts/position_error.py --data-dir <data_dir> --models runs/a0_v2T100_s0 runs/jepa_v2T100_s0
+Usage: python archive/ultrastick/scripts/position_error.py --data-dir <data_dir> --models runs/a0_v2T100_s0 runs/jepa_v2T100_s0
 """
 import argparse
 import json
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, load_model, predict  # noqa: E402
 from wingjepa.eval.io import starts  # noqa: E402,F401

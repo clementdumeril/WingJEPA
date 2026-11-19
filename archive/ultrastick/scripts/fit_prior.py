@@ -4,13 +4,13 @@
               by the simulator, training flights only. The model (regressors: TERMS in
               wingjepa/models/physics.py) is simpler than the NASA tables (no propeller slipstream effect,
               no stall): even when fitted, the prior is not perfect (R2 printed).
-  generique : published coefficients of the Ultra Stick 25e (little brother, configs/ultrastick25e_validation.yaml),
+  generique : published coefficients of the Ultra Stick 25e (little brother, archive/ultrastick/configs/ultrastick25e_validation.yaml),
               drag linearized in alpha; thrust = the fitted one (the motor is known from its test bench).
   faux      : fitted, each coefficient multiplied by 1 +/- 30 % (sign drawn at random, fixed seed).
   nul       : everything zero (C0: only gravity and the equations of motion remain).
 Outputs: <out>/<name>.json, to be passed to train_a.py --prior.
 
-Usage: python scripts/fit_prior.py --data-dir <out_dir>/data_v1
+Usage: python archive/ultrastick/scripts/fit_prior.py --data-dir <out_dir>/data_v1
 """
 import argparse
 import json
@@ -19,10 +19,10 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from wingjepa.data.windows import load_set  # noqa: E402
 from wingjepa.models.physics import COEFS, TERMS, regressors  # noqa: E402
-from wingjepa.sim.ultrastick import isa_density, load_config  # noqa: E402
+from archive.ultrastick.ultrastick import isa_density, load_config  # noqa: E402
 
 
 def fit(data, ch, mask, p):
@@ -63,8 +63,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", default="train")
-    ap.add_argument("--config", default="configs/ultrastick120.yaml")
-    ap.add_argument("--generic", default="configs/ultrastick25e_validation.yaml")
+    ap.add_argument("--config", default="archive/ultrastick/configs/ultrastick120.yaml")
+    ap.add_argument("--generic", default="archive/ultrastick/configs/ultrastick25e_validation.yaml")
     ap.add_argument("--out", default=None, help="default: <data-dir>/priors")
     ap.add_argument("--wrong-frac", type=float, default=0.3)
     ap.add_argument("--seed", type=int, default=0)

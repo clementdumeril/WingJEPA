@@ -4,7 +4,7 @@ For each run directory under runs/ that has been evaluated, results/<run>/ recei
 log.json, eval_train.json and eval_test_long.json (a few hundred kB in total; model weights stay on the
 cluster). results/summary.csv has one row per run with the numbers quoted in the README.
 
-Usage: python scripts/collect_results.py [--runs "runs/*_s[0-9]*"] [--out results]
+Usage: python archive/ultrastick/scripts/collect_results.py [--runs "runs/*_s[0-9]*"] [--out results]
 """
 import argparse
 import csv

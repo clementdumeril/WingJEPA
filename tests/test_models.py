@@ -1,4 +1,5 @@
 """Unit tests for the world models. Run from the repository root: python -m pytest -q"""
+import json
 import sys
 from pathlib import Path
 
@@ -8,42 +9,43 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scripts"))
-from fit_prior import generic_25e  # noqa: E402
 from wingjepa.data.windows import N_STATE, Normalizer  # noqa: E402
 from wingjepa.models.jepa import TCNEncoder, model_from_config  # noqa: E402
 from wingjepa.models.physics import PhysicsHead  # noqa: E402
-from wingjepa.sim.ultrastick import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W,  # noqa: E402
-                                     UltraStick, isa_density, load_config)
+from wingjepa.sim.advanced_plane import AdvancedPlane  # noqa: E402
+from wingjepa.sim.common import DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W, load_config  # noqa: E402
 
 
 def test_physics_head_matches_simulator():
-    """With the Ultra Stick 25e linear model as prior, the physics head must reproduce the simulator's
-    equations of motion. Thrust and propeller moments are not in the prior; they are passed as the
-    correction term. Elevator and pitch rate are zero, where the linearized drag of the prior is exact."""
-    p = load_config(ROOT / "configs/ultrastick25e_validation.yaml")
+    """With the null prior of the SkyJEPA suite and the simulator's forces and moments of the advanced_plane passed
+    as the correction, the physics head must reproduce the simulator's equations of motion (same mass, inertia,
+    gravity and air density). The Ultra Stick version, with a linear aerodynamic prior: archive/ultrastick/tests."""
+    p = load_config(ROOT / "configs/advanced_plane.yaml")
+    prior = json.load(open(ROOT / "configs/priors/advanced_plane_nul.json"))
     n = 6
     rng = np.random.default_rng(0)
     Y = np.zeros((n, 16))
-    Y[:, U] = rng.uniform(14, 24, n)
+    Y[:, U] = rng.uniform(12, 20, n)
     Y[:, V] = rng.uniform(-1.5, 1.5, n)
-    Y[:, W] = rng.uniform(-1, 3, n)
-    Y[:, P], Y[:, R] = rng.uniform(-0.5, 0.5, n), rng.uniform(-0.3, 0.3, n)
+    Y[:, W] = rng.uniform(-1, 2, n)
+    Y[:, P], Y[:, Q], Y[:, R] = rng.uniform(-0.5, 0.5, n), rng.uniform(-0.3, 0.3, n), rng.uniform(-0.3, 0.3, n)
     Y[:, PHI], Y[:, TH], Y[:, PSI] = rng.uniform(-0.6, 0.6, n), rng.uniform(-0.3, 0.3, n), 0.3
-    Y[:, H] = 100.0
-    Y[:, DA], Y[:, DR] = rng.uniform(-0.1, 0.1, n), rng.uniform(-0.1, 0.1, n)
-    Y[:, OM] = 700.0
-    cmd, thr = Y[:, DE:DR + 1].copy(), np.full(n, 0.6)
-    ac = UltraStick(p, n)
+    Y[:, H] = 200.0
+    Y[:, DE:DR + 1] = rng.uniform(-0.1, 0.1, (n, 3))
+    Y[:, OM] = 600.0
+    cmd, thr = Y[:, DE:DR + 1].copy(), np.full(n, 0.4)
+    ac = AdvancedPlane(p, n)
     zero = np.zeros((n, 3))
     dY = ac.derivatives(Y, cmd, thr, zero, zero)
     F = ac.forces(Y, thr, zero)
+    assert (prior["rho"], prior["S"], prior["c"], prior["g"]) == (p["rho"], p["S"], p["c"], p["g"])
+    np.testing.assert_allclose(prior["b"], ac.b)
 
-    prior = dict(coef=generic_25e(p, [0.0] * 6), rho=float(isa_density(100.0)), S=p["S"], b=p["b"], c=p["c"], g=p["g"])
     head = PhysicsHead(prior, np.zeros(16), np.ones(16)).double()
-    qS = 0.5 * prior["rho"] * F["Va"] ** 2 * p["S"]
-    dC = np.stack([F["T"] / qS, 0 * qS, 0 * qS, F["M_prop"][:, 0] / (qS * p["b"]),
-                   F["M_prop"][:, 1] / (qS * p["c"]), F["M_prop"][:, 2] / (qS * p["b"])], 1)
+    Va = np.linalg.norm(Y[:, U:W + 1], axis=1)
+    qS = 0.5 * prior["rho"] * Va ** 2 * prior["S"]
+    Fb, Mb = F["F_aero"] + F["F_prop"], F["M_aero"] + F["M_prop"]
+    dC = np.c_[Fb / qS[:, None], Mb / (qS[:, None] * np.array([ac.b, prior["c"], ac.b]))]
     x = torch.tensor(Y[:, [U, V, W, P, Q, R, PHI, TH]])
     ctrl = torch.tensor(np.c_[cmd, thr])
     acp = torch.tensor([[p["mass"], p["Ixx"], p["Iyy"], p["Izz"], p["Ixz"]]] * n, dtype=torch.float64)

@@ -2,15 +2,15 @@
 
 Each model gets the same 2 s of measured history, then predicts alone for --horizon-s seconds (commands
 known, wind held at its last estimate). Its predicted states are turned into a flight path exactly as
-for the position error (scripts/position_error.py: heading from the predicted rates, air velocity rotated
+for the position error (archive/ultrastick/scripts/position_error.py: heading from the predicted rates, air velocity rotated
 to north-east plus the held wind, vertical speed integrated). One start is drawn at random (--seed) on a
 training-range aircraft and one on an extreme test aircraft, not hand-picked.
 
 Writes <out>.gif (paths drawn over time, slowly rotating view, under 5 MB), <out>.png (last frame),
 <out>.json (the paths, in meters from the start point) and <out>.html (interactive 3D viewer: the paths
-inside scripts/trajectory_viewer.html, a single page that only loads plotly from a CDN).
+inside archive/ultrastick/scripts/trajectory_viewer.html, a single page that only loads plotly from a CDN).
 
-Usage: python scripts/make_trajectory_3d.py --data-dir <data_dir> \
+Usage: python archive/ultrastick/scripts/make_trajectory_3d.py --data-dir <data_dir> \
            --models runs/a0_calmT100_s0 runs/jepa_calmT100_s0 --labels "A0" "JEPA"
 """
 import argparse
@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, load_model, predict  # noqa: E402
 from position_error import integrate, starts  # noqa: E402

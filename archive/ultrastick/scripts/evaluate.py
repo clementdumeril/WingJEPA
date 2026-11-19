@@ -17,7 +17,7 @@ component (1 = the correction learned exactly the missing physics, 0 = nothing, 
 Useful horizon = first instant where |altitude error| > 5 m, |speed error| > 1 m/s or
 |phi or theta error| > 10 deg.
 
-Usage: python scripts/evaluate.py --model-dir runs/jepa_s0 --data-dir <out_dir>/data_v1 --set test_long
+Usage: python archive/ultrastick/scripts/evaluate.py --model-dir runs/jepa_s0 --data-dir <out_dir>/data_v1 --set test_long
 """
 import argparse
 import json
@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from wingjepa.data.windows import (N_CTRL, N_STATE, STATE, aircraft_params, features,  # noqa: E402
                                    load_set, split_mask, true_wind_features, window_starts)
 from wingjepa.eval.io import DT, load_model, predict  # noqa: E402,F401

@@ -5,7 +5,7 @@ Reads runs/closed_loop/sweep_nz<noise>_s<seed>.json (scripts/closed_loop.py), av
 below --min-survival at a noise level is left out of the error panels there (its errors only cover the
 time before the loss), but stays in the survival panel.
 
-Usage: python scripts/plot_closed_loop.py --dir runs/closed_loop --out docs/figures/closed_loop_noise.pdf
+Usage: python archive/ultrastick/scripts/plot_closed_loop.py --dir runs/closed_loop --out docs/figures/closed_loop_noise.pdf
 """
 import argparse
 import collections
@@ -28,7 +28,7 @@ LABELS = {   # order of the legend; MPPI with each world model, except TECS
     "a0_calm_sky_noiseaug": "A0 + MLP, noise-augmented",
     "jepa_calm_sky": "JEPA frozen + MLP probe",
 }
-COLORS = {   # same colors as Fig. 2 (scripts/plot_paper.py)
+COLORS = {   # same colors as Fig. 2 (archive/ultrastick/scripts/plot_paper.py)
     "tecs": "k", "c_direct_calm_sky_nul": "C6", "c_jepa_calm_sky_nul": "C4", "a0_calm_sky": "C1",
     "a0_calm_sky_noiseaug": "C8", "jepa_calm_sky": "C3", "c_direct_calm_sky_nul_noiseaug": "#8c004b",
 }

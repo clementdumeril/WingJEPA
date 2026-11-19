@@ -1,7 +1,7 @@
 # Ultra Stick 120 (FASER, University of Minnesota UAV Lab) - base aircraft of the ground-truth simulator.
 # Transcribed from UMNUAV_sim_v4 (BSD, (c) 2011 Regents of the University of Minnesota):
 #   Simulation/Libraries/FASER_config.m, Propulsion_Lib.mdl, Actuator_Lib.mdl, FASER_Aero_Lib.mdl.
-# Aero: NASA Langley wind-tunnel tables, FASER_Aero.mat (fetched by scripts/fetch_umn.sh).
+# Aero: NASA Langley wind-tunnel tables, FASER_Aero.mat (fetched by archive/ultrastick/scripts/fetch_umn.sh).
 # SI units, radians unless stated otherwise.
 
 aircraft: ultrastick120

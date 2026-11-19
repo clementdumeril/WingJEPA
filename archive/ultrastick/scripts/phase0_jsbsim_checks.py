@@ -1,6 +1,6 @@
 """Phase 0: JSBSim checks (speed, glide of the bundled gliders, engine off).
 
-Usage: python scripts/phase0_jsbsim_checks.py
+Usage: python archive/ultrastick/scripts/phase0_jsbsim_checks.py
 """
 import time
 

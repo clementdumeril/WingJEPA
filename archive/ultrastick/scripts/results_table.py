@@ -1,6 +1,6 @@
 """Print the results table of the README from results/summary.csv (no data or model needed).
 
-python scripts/results_table.py
+python archive/ultrastick/scripts/results_table.py
 
 Each cell: mean over the seeds, with (min-max) when there are several. Horizons are medians over the flights of
 each run, in seconds; position error is the RMS 3D distance after 5 s, in meters, training-range aircraft.
@@ -10,7 +10,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SUMMARY = Path(__file__).resolve().parent.parent / "results" / "summary.csv"
+SUMMARY = Path(__file__).resolve().parents[3] / "results" / "summary.csv"
 
 MODELS = [  # (label, calm-air run prefix, turbulent run prefix)
     ("A0: direct state loss", "a0_calmT100", "a0_v2T100"),

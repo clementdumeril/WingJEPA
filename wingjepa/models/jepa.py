@@ -114,7 +114,8 @@ def sigreg(z, n_proj=256, n_knots=17, t_max=5.0):
     return torch.trapezoid(err, t, dim=-1).mean() * N
 
 
-# nominal aircraft (configs/ultrastick120.yaml): the parameters are given as relative deviations from these values
+# nominal aircraft of --aircraft-input 1 (the Ultra Stick 120, archive/ultrastick/configs/ultrastick120.yaml): the
+# parameters are given as relative deviations from these values
 NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 

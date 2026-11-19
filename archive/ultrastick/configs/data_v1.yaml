@@ -1,8 +1,5 @@
-# Dataset data_calm: the flights of data_v1 in calm air (no turbulence, no gusts), to test whether JEPA's
-# gap to a direct state loss comes from turbulence. Same seed, sets and shards as data_v1: the random draws
-# happen in the same order (turbulence level drawn then ignored, gusts drawn with zero amplitude), so each
-# flight has the same aircraft, wind, references and excitations as its data_v1 twin.
-name: data_calm
+# Dataset data_v1 (6 degrees of freedom) - decisions: docs/phase1_decisions.md
+name: data_v1
 seed: 20261019
 out_dir: data                   # relative to the working directory (jobs run from the repo root)
 split: [0.8, 0.1, 0.1]          # train / val / test, drawn per flight ("train" set only)
@@ -24,7 +21,7 @@ sim:
            phi_max_deg: 75, theta_max_deg: 80, h_min: 20}
 
 aircraft:
-  config: configs/ultrastick120.yaml   # Ultra Stick 120, NASA tables (scripts/fetch_umn.sh)
+  config: archive/ultrastick/configs/ultrastick120.yaml   # Ultra Stick 120, NASA tables (archive/ultrastick/scripts/fetch_umn.sh)
   ranges:                       # [training, limit for the test aircraft]
     mass: [0.20, 0.35]
     inertia: [0.30, 0.45]       # Ixx, Iyy, Izz independently (Ixz follows to stay positive definite)
@@ -35,10 +32,10 @@ aircraft:
 wind:
   steady_horizontal_max: 10.0   # m/s, random direction (only displaces the aircraft)
   steady_vertical_max: 1.5      # m/s, updraft or downdraft
-  turbulence_probs: {none: 1.0, light: 0.0, moderate: 0.0, severe: 0.0}
+  turbulence_probs: {none: 0.25, light: 0.35, moderate: 0.25, severe: 0.15}
   gust_rate_per_min: 3
   gust_duration_s: [1.0, 5.0]
-  gust_amplitude_max: 0.0       # m/s per axis, (1 - cos) gust
+  gust_amplitude_max: 3.0       # m/s per axis, (1 - cos) gust
   estimate_tau_s: 2.0           # estimated wind: low-pass
   estimate_bias_sigma: 0.5      # m/s, slow estimator bias
   estimate_bias_T_s: 20.0

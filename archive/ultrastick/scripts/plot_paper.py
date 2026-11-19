@@ -1,8 +1,8 @@
 """Figure 2 of the one-page paper, at its printed size (7 x 1.4 in, 7 pt): position error vs prediction time on
 training-range and extreme aircraft, noise robustness, and one shared legend. Reads the same
-<run>/eval_skyjepa_<set>.json files as scripts/plot_skyjepa.py (mean over seeds, bands = min/max).
+<run>/eval_skyjepa_<set>.json files as archive/ultrastick/scripts/plot_skyjepa.py (mean over seeds, bands = min/max).
 
-Usage: python scripts/plot_paper.py --runs runs --out docs/figures/paper_fig2.pdf
+Usage: python archive/ultrastick/scripts/plot_paper.py --runs runs --out docs/figures/paper_fig2.pdf
 """
 import argparse
 import sys

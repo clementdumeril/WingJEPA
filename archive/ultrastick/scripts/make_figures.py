@@ -1,4 +1,4 @@
-"""README figures from the evaluation files collected in results/ (scripts/collect_results.py).
+"""README figures from the evaluation files collected in results/ (archive/ultrastick/scripts/collect_results.py).
 
   docs/figures/useful_horizon.png       median useful horizon per model, long flights, training vs extreme
                                          aircraft (bar = mean over seeds, whiskers = min/max over seeds)
@@ -6,9 +6,9 @@
   docs/figures/calm_vs_turbulence.png   median useful horizon of the main models, turbulent vs calm air (PAIRS)
   docs/figures/position_error.png       RMS 3D position error at 5 s (the SkyJEPA metric), turbulent vs calm air
   docs/figures/probe.png                how well the present state can be read back from the encoder latent, A0 vs
-                                         JEPA (probe.json, scripts/diagnose.py)
+                                         JEPA (probe.json, archive/ultrastick/scripts/diagnose.py)
 
-Usage: python scripts/make_figures.py [--results results] [--out docs/figures]
+Usage: python archive/ultrastick/scripts/make_figures.py [--results results] [--out docs/figures]
 """
 import argparse
 import json

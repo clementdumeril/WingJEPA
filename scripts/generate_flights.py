@@ -1,10 +1,11 @@
 """Generate a shard of 6DoF flights and write it as .npz + .json.
 
-Usage: python scripts/generate_flights.py --config configs/data_v1.yaml --set train --shard 3 --n-shards 20
+Usage: python scripts/generate_flights.py --config configs/data_advanced.yaml --set train --shard 3 --n-shards 20
 Each shard has its own seed (seed + 1000 * set index + shard): shards are independent.
 Aircraft: the `aircraft` key of the aircraft config named by the data config (aircraft.config) selects the
-simulator: advanced_plane (configs/advanced_plane.yaml, wingjepa/sim/advanced_plane.py) or, otherwise, the Ultra
-Stick 120 with the NASA tables (prerequisite: bash scripts/fetch_umn.sh, once).
+simulator: advanced_plane (configs/advanced_plane.yaml, wingjepa/sim/advanced_plane.py) or the archived Ultra Stick
+120 with the NASA tables (archive/ultrastick/configs/*.yaml, imported only then; prerequisite:
+bash archive/ultrastick/scripts/fetch_umn.sh, once).
 """
 import argparse
 import json
@@ -17,9 +18,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.sim import advanced_plane  # noqa: E402
+from wingjepa.sim.common import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: E402
+                                 dcm_body_to_ned, load_config)
 from wingjepa.sim.pilot import LAT_NAMES, TECS, TYPE_NAMES, lateral, make_profiles  # noqa: E402
-from wingjepa.sim.ultrastick import (DA, DE, DR, H, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: E402
-                                     FaserTables, UltraStick, dcm_body_to_ned, load_config)
 from wingjepa.sim.wind import Wind  # noqa: E402
 
 CHANNELS = ["t", "u", "v", "w", "p", "q", "r", "phi", "theta", "psi", "north", "east", "h",
@@ -32,41 +33,19 @@ CHANNELS = ["t", "u", "v", "w", "p", "q", "r", "phi", "theta", "psi", "north", "
 AERO = ("CD", "CY", "CL", "Cl", "Cm", "Cn")
 
 
-def _factor(rng, m, r, test):
-    if not test:
-        return 1 + rng.uniform(-r[0], r[0], m)
-    return 1 + rng.choice([-1, 1], m) * rng.uniform(r[0], r[1], m)
-
-
-def sample_overrides(rng, n, p, ranges, is_test):
-    """Per-flight domain randomisation (multiplicative factors; offset for the CG position)."""
-    keys = ["mass", "fIxx", "fIyy", "fIzz", "power_scale", "cg_shift"] + list(AERO)
-    out = {k: [] for k in keys}
-    for test in (False, True):
-        m = int((is_test == test).sum())
-        out["mass"].append(p["mass"] * _factor(rng, m, ranges["mass"], test))
-        for k in ("fIxx", "fIyy", "fIzz"):
-            out[k].append(_factor(rng, m, ranges["inertia"], test))
-        out["power_scale"].append(_factor(rng, m, ranges["motor"], test))
-        out["cg_shift"].append(_factor(rng, m, ranges["cg_shift"], test) - 1)
-        for k in AERO:
-            out[k].append(_factor(rng, m, ranges["aero"], test))
-    o = {k: np.concatenate(v) for k, v in out.items()}
-    return dict(mass=o["mass"], Ixx=p["Ixx"] * o["fIxx"], Iyy=p["Iyy"] * o["fIyy"], Izz=p["Izz"] * o["fIzz"],
-                Ixz=p["Ixz"] * np.sqrt(o["fIxx"] * o["fIzz"]),        # keeps the inertia matrix positive definite
-                power_scale=o["power_scale"], cg_shift=o["cg_shift"], aero_scale={k: o[k] for k in AERO})
-
-
 def make_aircraft(rng, n, p, ranges, is_test):
     """Batch of aircraft with per-flight randomization: AdvancedPlane when the aircraft config says
     `aircraft: advanced_plane` (ranges: the data config's aircraft.ranges, else the aircraft config's own
-    randomization section), else the Ultra Stick 120 (NASA tables). Returns (simulator, overrides)."""
+    randomization section), the archived Ultra Stick 120 (NASA tables) when it names an Ultra Stick.
+    Returns (simulator, overrides)."""
     if p.get("aircraft") == "advanced_plane":
         ov = advanced_plane.sample_overrides(rng, n, p, ranges, is_test)
         return advanced_plane.AdvancedPlane(p, n, None, ov), ov
-    tab = FaserTables(p["aero_file"])
-    ov = sample_overrides(rng, n, p, ranges, is_test)
-    return UltraStick(p, n, tab, ov), ov
+    if str(p.get("aircraft", "")).startswith("ultrastick"):
+        from archive.ultrastick.ultrastick import FaserTables, UltraStick, sample_overrides
+        ov = sample_overrides(rng, n, p, ranges, is_test)
+        return UltraStick(p, n, FaserTables(p["aero_file"]), ov), ov
+    raise ValueError(f"aircraft config: unknown aircraft {p.get('aircraft')!r} (advanced_plane, ultrastick120)")
 
 
 def simulate(rng, n, duration, n_test, cfg):

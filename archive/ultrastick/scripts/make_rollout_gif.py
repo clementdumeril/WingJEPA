@@ -1,12 +1,12 @@
 """Hero animation: open-loop predictions of several world models against the simulator, on one flight.
 
 Each model gets the same 2 s of measured history, then predicts alone for --horizon-s seconds, receiving
-only the commands actually applied and the last wind estimate (as in scripts/evaluate.py). The start
+only the commands actually applied and the last wind estimate (as in archive/ultrastick/scripts/evaluate.py). The start
 point is drawn at random (--seed) among the valid starts of the chosen group, not hand-picked.
 
 Writes <out>.gif (about 720 px wide, 10 fps, under 5 MB) and <out>.png (last frame).
 
-Usage: python scripts/make_rollout_gif.py --data-dir <data_dir> \
+Usage: python archive/ultrastick/scripts/make_rollout_gif.py --data-dir <data_dir> \
            --models runs/a0_v2T100_s0 runs/c_direct_v2T100_ajuste_s0 --labels "A0" "C-direct, fitted prior"
 """
 import argparse
@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, load_model, predict  # noqa: E402
 from wingjepa.data.windows import STATE, aircraft_params, features, load_set  # noqa: E402

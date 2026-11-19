@@ -22,18 +22,10 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import DT, load_model, predict  # noqa: E402
+from wingjepa.eval.io import starts  # noqa: E402,F401
 from wingjepa.data.windows import N_STATE, STATE, aircraft_params, features, load_set, split_mask  # noqa: E402
 
 TIMES = [1, 5, 10, 20]
-
-
-def starts(alive, n_past, n_future, stride):
-    out = []
-    for f in range(alive.shape[0]):
-        for s in range(0, alive.shape[1] - n_past - n_future + 1, stride):
-            if alive[f, s:s + n_past + n_future].all():
-                out.append((f, s))
-    return np.array(out)
 
 
 def integrate(states, psi0, pos0, wind_ne):

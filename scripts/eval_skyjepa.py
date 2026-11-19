@@ -37,12 +37,10 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evaluate import DT, load_model, predict  # noqa: E402
-from position_error import starts  # noqa: E402
 from wingjepa.data.noise import KINDS, corrupt, draw  # noqa: E402
 from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_STATE, STATE, aircraft_params, features, load_set, split_mask  # noqa: E402
+from wingjepa.eval.io import DT, load_model, predict, starts  # noqa: E402
 
 DEG = 180 / np.pi
 SIGMAS = [0.0, 0.05, 0.1, 0.2, 0.5]

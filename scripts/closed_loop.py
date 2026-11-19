@@ -41,11 +41,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evaluate import load_model  # noqa: E402
 from generate_flights import make_aircraft  # noqa: E402
 from wingjepa.data.noise import KINDS, SensorNoise  # noqa: E402
 from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_CTRL, N_STATE  # noqa: E402
+from wingjepa.eval.io import load_model  # noqa: E402
 from wingjepa.sim import ultrastick as us  # noqa: E402
 from wingjepa.sim.pilot import TECS, lateral  # noqa: E402
 from wingjepa.sim.wind import Wind  # noqa: E402

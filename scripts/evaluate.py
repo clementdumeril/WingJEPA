@@ -30,26 +30,17 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wingjepa.data.windows import (N_CTRL, N_STATE, STATE, Normalizer, aircraft_params, features,  # noqa: E402
+from wingjepa.data.windows import (N_CTRL, N_STATE, STATE, aircraft_params, features,  # noqa: E402
                                    load_set, split_mask, true_wind_features, window_starts)
-from wingjepa.models.jepa import model_from_config  # noqa: E402
+from wingjepa.eval.io import DT, load_model, predict  # noqa: E402,F401
 from wingjepa.models.physics import COEFS, TERMS  # noqa: E402
 
-DT = 0.05
 DEG = 180 / np.pi
 ANGLES = {"alpha", "beta", "p", "q", "r", "phi", "theta"}
 THRESH = dict(h=5.0, Va=1.0, att=10.0)
 TURB = ["none", "light", "moderate", "severe"]
 WHO = ["modele_vent_estime", "modele_vent_vrai", "reference", "reference_altitude_constante"]
 BODY = ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]
-
-
-def load_model(d):
-    cfg = json.load(open(Path(d) / "config.json"))
-    m = model_from_config(cfg)
-    m.load_state_dict(torch.load(Path(d) / "model.pt"))
-    m.eval()
-    return m, cfg, Normalizer.from_dict(cfg["norm"])
 
 
 def make_rollouts(X, alive, h, H, L, stride):
@@ -64,17 +55,6 @@ def make_rollouts(X, alive, h, H, L, stride):
     if not seqs:
         return None, None, None
     return np.stack(seqs), np.stack(hs), np.array(fl)
-
-
-@torch.no_grad()
-def predict(model, norm, seq, H, hold_wind, ac=None, batch=512):
-    """seq : (N, H+L, 16) unnormalized, ac : (N, 5) aircraft -> predicted states (N, L, 9) unnormalized."""
-    out = []
-    for i in range(0, len(seq), batch):
-        s = torch.from_numpy(norm(seq[i:i + batch]))
-        a = None if ac is None else torch.from_numpy(ac[i:i + batch])
-        out.append(model.predict_states(s, H, hold_wind, a)[0].numpy())
-    return norm.state_inverse(np.concatenate(out))
 
 
 @torch.no_grad()

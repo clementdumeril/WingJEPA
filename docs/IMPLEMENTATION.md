@@ -1,7 +1,26 @@
 # Implementation details
 
-Detail moved out of the top-level README. Results: [RESULTS.md](RESULTS.md) (current setting) and
+Detail moved out of the top-level README. The code now runs SkyJEPA's test suite on PX4's `advanced_plane`
+(components below). The sections after the table (models, checks, training runs, figures) describe the archived Ultra
+Stick 120 study, whose code is in [`archive/ultrastick/`](../archive/ultrastick/README.md) and in the tag
+`ultrastick-final`; their paths are those of the tag (on main, the Ultra Stick files keep their names under
+`archive/ultrastick/`). Results of that study: [RESULTS.md](RESULTS.md) and
 [`../results/README.md`](../results/README.md) (earlier setting).
+
+## Components
+
+| Component | Path | What it is |
+| --- | --- | --- |
+| Truth simulator | `wingjepa/sim/advanced_plane.py`, `common.py`, `wind.py` | PX4 `advanced_plane` as Gazebo simulates it (AdvancedLiftDrag, MulticopterMotorModel, servos), RK4 at 100 Hz, per-flight randomization, trim; 1-cos gusts, Dryden turbulence (MIL-F-8785C), filtered wind estimate |
+| Flight generator | `scripts/generate_flights.py`, `wingjepa/sim/pilot.py`, `configs/data_advanced*.yaml` | TECS speed and altitude autopilot, bank and coordination loops, excitations, envelope protection; 20,000 flights of 10 s and 400 of 60 s, half of these on extreme aircraft |
+| Simulator checks | `scripts/check_advanced_plane.py`, `tune_advanced_pilot.py`, `check_dataset.py`, `tools/compare_advanced_cpp/` | trim and modes, autopilot tuning bench, dataset sanity checks, comparison with the C++ model |
+| World models | `wingjepa/models/jepa.py`, `mlp_direct.py`, `scripts/train_a.py` | TCN encoder, action encoder, GRU predictor, MLP decoder; training modes `jepa`, `a0`, `c_direct`, `c_jepa`, `mlp_direct`; restart from checkpoint |
+| Physics head | `wingjepa/models/physics.py`, `configs/priors/advanced_plane_nul.json` | Newton-Euler with the true mass and inertia, prior forces plus 6 learned body-axis coefficients per step; null prior with the `advanced_plane` geometry |
+| Evaluation | `scripts/eval_skyjepa.py`, `wingjepa/eval/io.py` | SkyJEPA's metrics: 5 s open-loop errors on both aircraft sets, compounding ratio, straightening, noise sweep |
+| Closed loop | `scripts/closed_loop.py`, `closed_loop_stats.py` | MPPI with each model against the TECS autopilot, sensor-noise sweep, paired statistics |
+| Real flights | `scripts/idfds_to_npz.py` | IDF-DS PX4 flights converted to the dataset format |
+| Cluster jobs | `cluster/` | data generation, training and evaluation, quick check of every recipe (`smoke_advanced.sbatch`) |
+| Ultra Stick study | `archive/ultrastick/` | simulator, configs, priors, earlier evaluations, figure and cluster scripts |
 
 ## Models
 
@@ -27,7 +46,7 @@ dilations 1, 2, 4, 8, 16 (63-step receptive field), latent of size 32; rollouts 
 in evaluation; physics head with a fitted aerodynamic prior plus 6 learned corrections, or (`--correction param`)
 the 38 prior coefficients changed once per flight.
 
-## Components
+## Components of the Ultra Stick study
 
 | Component | Path | What it is |
 | --- | --- | --- |
@@ -82,7 +101,8 @@ The overview figure `figures/overview.svg` (earlier setting) is rendered to PNG 
 ## Credits
 
 - Simulator model and Ultra Stick 120 / 25e data: University of Minnesota UAV Research Group, UMNUAV_sim_v4 (BSD
-  license), with wind-tunnel tables from NASA Langley, downloaded by `scripts/fetch_umn.sh`.
+  license), with wind-tunnel tables from NASA Langley, downloaded by `archive/ultrastick/scripts/fetch_umn.sh`.
+- `advanced_plane`: PX4 Gazebo models (`models/advanced_plane/model.sdf`), through the Fixed-Wing C++ port.
 - SkyJEPA: Rao et al., arXiv 2606.23444 (architecture and the idea of a physics probe).
 - LeJEPA: Balestriero and LeCun, 2025 (SIGReg regularizer).
 - APHYNITY: Yin et al., ICLR 2021 (keeping the learned correction to a physical model small).

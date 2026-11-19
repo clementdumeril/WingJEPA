@@ -1,5 +1,9 @@
 # Detailed results
 
+> These results come from the archived Ultra Stick 120 study. Its code is in
+> [`archive/ultrastick/`](../archive/ultrastick/README.md); the tag `ultrastick-final` has the code as it was
+> for these runs, with the options since removed from the main code.
+
 Detail behind the [top-level README](../README.md). Implementation: [IMPLEMENTATION.md](IMPLEMENTATION.md). Earlier
 experiments in another setting (2 s of history, aircraft parameters as input, turbulence):
 [`results/README.md`](../results/README.md).
@@ -30,8 +34,8 @@ on 200 test flights (half of them on extreme aircraft, outside the training rang
 | A0 trained on noisy inputs | 13.8 | 18.5 | 22.8 | 0.15 |
 
 Source: `results/<run>_s{0,1,2}/eval_skyjepa_test_long.json` (written by `scripts/eval_skyjepa.py`); the
-full table with all ten recipes is printed by `python scripts/plot_skyjepa.py --runs results --out <dir>`.
-Figure: [`figures/paper_fig2.png`](figures/paper_fig2.png), made by `scripts/plot_paper.py` (open loop, unseen 120 s
+full table with all ten recipes is printed by `python archive/ultrastick/scripts/plot_skyjepa.py --runs results --out <dir>`.
+Figure: [`figures/paper_fig2.png`](figures/paper_fig2.png), made by `archive/ultrastick/scripts/plot_paper.py` (open loop, unseen 120 s
 flights, mean over 3 seeds, bands: min-max).
 
 - SkyJEPA's ranking holds: with the physics probe a JEPA trunk beats an A0 trunk (8.1 m against 10.8 m), and with
@@ -57,7 +61,7 @@ speed changes, with sensor noise added to the measured states. Mean of both airc
 
 ![Airspeed and altitude error, survival and command activity of each MPPI controller vs sensor noise](figures/closed_loop_noise.png)
 
-*Source: `results/closed_loop/sweep_nz*_s*.json` (`scripts/closed_loop.py`), figure by `scripts/plot_closed_loop.py`.*
+*Source: `results/closed_loop/sweep_nz*_s*.json` (`scripts/closed_loop.py`), figure by `archive/ultrastick/scripts/plot_closed_loop.py`.*
 
 Only the controllers with a physics head keep every aircraft at every noise level. The JEPA model read out by an
 MLP has an open-loop error close to A0's, yet MPPI crashes every aircraft with it within 7 to 11 s: open-loop error
@@ -65,15 +69,18 @@ alone does not tell which model can be flown.
 
 ## What I built
 
-- `wingjepa/sim/`: a Python port of the University of Minnesota Ultra Stick 120 6-DoF model (NASA wind-tunnel
-  tables), with Dryden turbulence, gusts and a TECS autopilot that flies the data-collection flights.
-- `configs/data_calm.yaml`: 2,000 training flights of 30 s and 200 test flights of 120 s at 20 Hz, each with a
+Paths on main; at the tag `ultrastick-final` the archived files were in `wingjepa/sim/`, `configs/` and `scripts/`.
+
+- `archive/ultrastick/ultrastick.py`: a Python port of the University of Minnesota Ultra Stick 120 6-DoF model (NASA
+  wind-tunnel tables), with Dryden turbulence, gusts and a TECS autopilot (`wingjepa/sim/`) that flies the
+  data-collection flights.
+- `archive/ultrastick/configs/data_calm.yaml`: 2,000 training flights of 30 s and 200 test flights of 120 s at 20 Hz, each with a
   random aircraft (mass, inertia, aerodynamics, motor and CG varied by 3 to 30 %; extreme test aircraft beyond).
 - `wingjepa/models/`: causal TCN encoders for states and commands, GRU predictor, MLP head, and a physics head
   (`physics.py`) that outputs aerodynamic coefficients and integrates Newton-Euler with RK4 from the measured state;
-  a port-Hamiltonian variant.
-- `scripts/train_a.py`: the recipes (direct, JEPA with SIGReg, frozen trunk + probe, fine-tuning), physics in the
-  loss, input-noise augmentation, and restartable training on Savio.
+  a port-Hamiltonian variant (tag only).
+- `scripts/train_a.py`: the recipes (direct, JEPA with SIGReg, frozen trunk + probe, fine-tuning: tag only), physics
+  in the loss, input-noise augmentation, and restartable training on Savio.
 - `scripts/eval_skyjepa.py`, `scripts/closed_loop.py`: the SkyJEPA metrics and the MPPI closed-loop test.
 
 ## How I checked it
@@ -101,6 +108,9 @@ alone does not tell which model can be flown.
 - [ ] Turbulence in the SkyJEPA setting, physics inside the latent predictor
 
 ## Reproduce
+
+The commands below are those of the tag `ultrastick-final` (`git checkout ultrastick-final`). On main, the same steps
+with the archived paths are in [`archive/ultrastick/README.md`](../archive/ultrastick/README.md).
 
 Tested with Python 3.11 on Windows 10 (unit tests) and on Linux (training). Dependencies are not pinned.
 

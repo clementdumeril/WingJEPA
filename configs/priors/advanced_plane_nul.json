@@ -1,0 +1,117 @@
+{
+ "name": "nul",
+ "coef": {
+  "CL": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "CD": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "CY": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "Cl": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "Cm": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "Cn": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "T": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ]
+ },
+ "terms": {
+  "CL": [
+   "1",
+   "alpha",
+   "alpha2",
+   "de",
+   "qhat"
+  ],
+  "CD": [
+   "1",
+   "alpha",
+   "alpha2",
+   "beta2",
+   "|de|",
+   "|da|",
+   "|dr|"
+  ],
+  "CY": [
+   "beta",
+   "da",
+   "dr",
+   "phat",
+   "rhat"
+  ],
+  "Cl": [
+   "beta",
+   "da",
+   "dr",
+   "phat",
+   "rhat"
+  ],
+  "Cm": [
+   "1",
+   "alpha",
+   "alpha2",
+   "de",
+   "qhat"
+  ],
+  "Cn": [
+   "beta",
+   "da",
+   "dr",
+   "phat",
+   "rhat"
+  ],
+  "T": [
+   "1",
+   "dt",
+   "dt2",
+   "dt*Va",
+   "Va",
+   "Va2"
+  ]
+ },
+ "rho": 1.2041,
+ "S": 0.34,
+ "b": 1.4866068747318506,
+ "c": 0.22,
+ "g": 9.8,
+ "note": "Null prior for the PX4 advanced_plane: every coefficient zero (thrust included), geometry from configs/advanced_plane.yaml; the physics head learns all forces."
+}

@@ -1,12 +1,8 @@
 """JEPA-type latent world model (docs/model_design.md): TCN encoder, GRU predictor, decoder.
 
   past: states (B, H, 9) --encoder--> z (B, D)
-  (by default the encoder sees neither the controls nor the wind, as in SkyJEPA, whose state encoder reads the
-  states only and whose action encoder meets them in the predictor (eq. 7-8). With action_history, the state
-  encoder also reads the past commands: the states alone do not say which commands produced the recent
-  motion. action_history = 1: a second TCN over the commands, merged with the state summary at the
-  output layer; 2: one joint TCN over states and commands, mixed from the first layer on, so that the encoder
-  can compare a command with the response it produced, which is how the aircraft (motor, CG) is identified)
+  (the encoder sees neither the controls nor the wind, as in SkyJEPA, whose state encoder reads the states only
+  and whose action encoder meets them in the predictor (eq. 7-8))
   z_k, input_k (controls + wind held constant) --predictor--> z_{k+1}
   z_k --decoder--> state (B, 9)
 The decoder is the "head": black box (model A, MLP) or physics head (model C, models/physics.py).
@@ -45,35 +41,17 @@ def causal_tcn(c, channels, k, dilations):
 
 
 class TCNEncoder(nn.Module):
-    """Causal TCN over the past states. n_act > 0: the past commands, stored after the n_in states in the
-    input, are read too: joint=False, by a second TCN (act_channels per layer, same dilations) whose summary
-    joins the state summary and the aircraft parameters before the output layer; joint=True, as extra input
-    channels of the state TCN itself. The commands are shifted by one step: the command
-    of step k is applied from k to k+1, so the window ending at a state sees exactly the commands that led
-    to it, and none that the predictor has not been given yet."""
+    """Causal TCN over the past states; its last step, joined by the aircraft parameters if n_ctx > 0, gives z."""
 
-    def __init__(self, n_in=16, channels=(16, 16, 32), k=3, dilations=(1, 2, 4), z_dim=32, n_ctx=0, n_act=0,
-                 act_channels=16, joint=False):
+    def __init__(self, n_in=16, channels=(16, 16, 32), k=3, dilations=(1, 2, 4), z_dim=32, n_ctx=0):
         super().__init__()
-        self.n_in, self.n_act, self.joint = n_in, n_act, bool(joint and n_act)
-        self.tcn = causal_tcn(n_in + (n_act if self.joint else 0), channels, k, dilations)
-        c = channels[-1]
-        if n_act and not self.joint:
-            self.act_tcn = causal_tcn(n_act, (act_channels,) * len(dilations), k, dilations)
-            c += act_channels
-        self.out = nn.Linear(c + n_ctx, z_dim)
+        self.n_in = n_in
+        self.tcn = causal_tcn(n_in, channels, k, dilations)
+        self.out = nn.Linear(channels[-1] + n_ctx, z_dim)
         self.receptive_field = 1 + (k - 1) * sum(dilations)
 
-    def forward(self, past, ctx=None):              # past : (B, H, n_in + n_act) ; ctx : (B, n_ctx), constant over the flight
-        x = past[:, :, :self.n_in].transpose(1, 2)
-        if self.n_act:
-            u = F.pad(past[:, :-1, self.n_in:].transpose(1, 2), (1, 0))       # commands delayed by one step
-        if self.joint:
-            h = self.tcn(torch.cat([x, u], 1))[:, :, -1]                       # last step
-        else:
-            h = self.tcn(x)[:, :, -1]
-            if self.n_act:
-                h = torch.cat([h, self.act_tcn(u)[:, :, -1]], -1)
+    def forward(self, past, ctx=None):              # past : (B, H, n_in) ; ctx : (B, n_ctx), constant over the flight
+        h = self.tcn(past[:, :, :self.n_in].transpose(1, 2))[:, :, -1]          # last step
         if ctx is not None:
             h = torch.cat([h, ctx], -1)
         return self.out(h)
@@ -121,30 +99,6 @@ class MLPDecoder(nn.Module):
         return self.net(z)
 
 
-class ResidualHead(nn.Module):
-    """Control for the physics head: same inputs (latent z_k, current state, commands and wind), same start
-    from the measured state and same step-by-step integration, but NO equations of motion: the next normalized
-    state is s_{k+1} = s_k + out_scale * MLP(z_k, s_k, u_k). Separates what the physics head gains from Newton-Euler
-    from what it gains from reading (s_k, u_k) and being re-anchored on the measured state."""
-
-    def __init__(self, z_dim=32, hidden=64, out_scale=0.1):
-        super().__init__()
-        self.out_scale = out_scale
-        self.net = nn.Sequential(nn.Linear(z_dim + N_STATE + N_CTRL + N_WIND, hidden), nn.GELU(),
-                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, N_STATE))
-
-    def forward(self, zs, s0, U, ac=None):
-        """zs (B, T, D): latents at the start of each step; s0 (B, 9): last observed state, normalized;
-        U (B, T, 7): normalized future inputs -> predicted states (B, T, 9), raw outputs (B, T, 9)."""
-        s, out, raws = s0, [], []
-        for k in range(U.shape[1]):
-            raw = self.net(torch.cat([zs[:, k], s, U[:, k]], -1))
-            s = s + self.out_scale * raw
-            out.append(s)
-            raws.append(raw)
-        return torch.stack(out, 1), torch.stack(raws, 1)
-
-
 def sigreg(z, n_proj=256, n_knots=17, t_max=5.0):
     """SIGReg (LeJEPA, Balestriero & LeCun 2025): pushes the distribution of the z in a batch towards an
     isotropic Gaussian. Random projections; for each one, Epps-Pulley statistic: gap between the
@@ -165,42 +119,23 @@ NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 
 class WorldModel(nn.Module):
-    """head = "mlp" (black-box decoder), "physics" (physics head, prior and norm required) or "residual"
-    (same inputs and integration as the physics head, without the equations of motion: ResidualHead).
-    action_history: the encoder also reads the past commands (1: second TCN, 2: joint TCN).
-    target_window: length of the windows encoded as JEPA targets (default 0: H, the context length).
-    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi).
-    context_dim C > 0: context latent c (B, C) of the aircraft being flown, read once from the past states and
-    commands by a joint causal TCN (context_channels), given to the GRU at every step and to the head next to z.
-    In a JEPA, the GRU memory is the latent z itself, and the loss pins z_{t+k} to the encoding of the measured
-    state window, which holds no aircraft identity: there is nowhere to keep "this aircraft has a weak motor".
-    c is the target of no loss, so it is free to hold what predicting the future needs about the aircraft."""
+    """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required).
+    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi)."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
-                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, correction="free",
-                 param_bound=0.0, action_history=False, target_window=0, act_channels=None, n_oracle=0,
-                 context_dim=0, context_channels=(8, 8, 16)):
+                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, act_channels=None):
         super().__init__()
-        self.target_window = target_window
-        n_act = N_CTRL if action_history else 0
-        self.n_past = N_STATE + n_act                                  # channels of seq the encoder reads
-        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx, n_act,
-                                  joint=int(action_history) == 2)
-        self.context_dim = int(context_dim)
-        self.context_enc = (TCNEncoder(N_STATE, context_channels, k, dilations, self.context_dim, 0, N_CTRL,
-                                       joint=True) if self.context_dim else None)
-        self.predictor = GRUPredictor(N_CTRL + N_WIND + self.context_dim, z_dim, act_channels, k, dilations)
+        self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx)
+        self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim, act_channels, k, dilations)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
-        zh = z_dim + self.context_dim                                  # what the head reads: z, and c if any
         if head == "mlp":
-            self.decoder = MLPDecoder(zh, dec_hidden)
-        elif head == "residual":
-            self.decoder = ResidualHead(zh, dec_hidden, out_scale)
-        else:
+            self.decoder = MLPDecoder(z_dim, dec_hidden)
+        elif head == "physics":
             from wingjepa.models.physics import PhysicsHead
-            self.decoder = PhysicsHead(prior, norm.mean, norm.std, zh, dec_hidden, out_scale, n_sub,
-                                       correction=correction, param_bound=param_bound, n_oracle=n_oracle)
+            self.decoder = PhysicsHead(prior, norm.mean, norm.std, z_dim, dec_hidden, out_scale, n_sub)
+        else:
+            raise ValueError(f"unknown head {head!r}: mlp or physics")
 
     def ctx(self, ac):
         """Aircraft parameters (B, 5) -> encoder input: relative deviation from nominal, / 0.3."""
@@ -210,19 +145,7 @@ class WorldModel(nn.Module):
 
     def encode(self, past, ac=None):
         """past : (B, H, 16) normalized window (states, commands, wind) -> z (B, D)."""
-        return self.encoder(past[:, :, :self.n_past], self.ctx(ac))
-
-    def context_of(self, past):
-        """past : (B, H, 16) normalized window -> context latent c (B, C), or None without context."""
-        if self.context_enc is None:
-            return None
-        return self.context_enc(past[:, :, :N_STATE + N_CTRL])
-
-    def encode_head(self, past, ac=None):
-        """What the head reads at the last observed step: z, followed by c with the context latent."""
-        z = self.encode(past, ac)
-        c = self.context_of(past)
-        return z if c is None else torch.cat([z, c], -1)
+        return self.encoder(past[:, :, :N_STATE], self.ctx(ac))
 
     @staticmethod
     def future_inputs(seq, H, hold_wind=True):
@@ -240,9 +163,7 @@ class WorldModel(nn.Module):
         """seq : (B, H+T, 16) -> z_0 (B, D), predicted latents z_1..z_T (B, T, D), future inputs (B, T, 7)."""
         U = self.future_inputs(seq, H, hold_wind)
         z0 = self.encode(seq[:, :H], ac)
-        c = self.context_of(seq[:, :H])
-        Ug = U if c is None else torch.cat([U, c[:, None].expand(-1, U.shape[1], -1)], -1)
-        return z0, self.predictor.rollout(z0, self.predictor.inputs(seq, H, Ug)), U
+        return z0, self.predictor.rollout(z0, self.predictor.inputs(seq, H, U)), U
 
     def predict_latents(self, seq, H, hold_wind=True, ac=None):
         """seq : (B, H+T, 16) -> predicted latents (B, T, D) for steps t+1..t+T."""
@@ -250,10 +171,6 @@ class WorldModel(nn.Module):
 
     def head_states(self, z0, zs, U, seq, H, ac=None):
         """Normalized predicted states (B, T, 9) and, for the physics head, raw outputs of the correction."""
-        c = self.context_of(seq[:, :H])
-        if c is not None:
-            z0 = torch.cat([z0, c], -1)
-            zs = torch.cat([zs, c[:, None].expand(-1, zs.shape[1], -1)], -1)
         if self.head == "mlp":
             return self.decoder(zs), None
         zk = torch.cat([z0[:, None], zs[:, :-1]], 1)                 # latent at the start of each step
@@ -263,46 +180,43 @@ class WorldModel(nn.Module):
         z0, zs, U = self.latents(seq, H, hold_wind, ac)
         return self.head_states(z0, zs, U, seq, H, ac)
 
-    def target_latents(self, seq, H, ac=None, encoder=None):
-        """Encoder applied to the true windows ending at t+1..t+T -> (B, T, D).
-        encoder: another encoder for the targets (slow EMA copy), default the model's own.
-        With the command history, the targets see it set to zero: the predictor receives the commands, so
-        targets that encode them could be predicted from the commands alone instead of the state.
-        With target_window Ht < H, each target window holds only the last Ht steps: a window of H steps shares
-        H - k of them with the context, so a latent of the slow content of the past is already a good target."""
-        Ht = min(self.target_window or H, H)
-        win = seq[:, H - Ht + 1:, :self.n_past].unfold(1, Ht, 1)     # (B, T, n_past, Ht), ending at t+1..t+T
-        if self.n_past > N_STATE:
-            win = torch.cat([win[:, :, :N_STATE], torch.zeros_like(win[:, :, N_STATE:])], 2)
+    def target_latents(self, seq, H, ac=None):
+        """Encoder applied to the true state windows of H steps ending at t+1..t+T -> (B, T, D)."""
+        win = seq[:, 1:, :N_STATE].unfold(1, H, 1)                    # (B, T, 9, H), ending at t+1..t+T
         B, T = win.shape[:2]
         c = self.ctx(ac)
         c = None if c is None else c.repeat_interleave(T, 0)
-        z = (encoder or self.encoder)(win.reshape(B * T, win.shape[2], Ht).transpose(1, 2), c)
+        z = self.encoder(win.reshape(B * T, N_STATE, H).transpose(1, 2), c)
         return z.reshape(B, T, -1)
 
     def n_params(self):
         parts = [("encodeur", self.encoder), ("predicteur", self.predictor), ("decodeur", self.decoder)]
-        if self.context_enc is not None:
-            parts.append(("contexte", self.context_enc))
         return {k: sum(p.numel() for p in m.parameters()) for k, m in parts}
+
+
+# architecture options of earlier studies, removed from this code (they are in the tag ultrastick-final):
+# config.json key -> the value that means "off"; the last two only change the physics head. A run that used one of
+# them cannot be rebuilt here. (Training-only options, such as the EMA target encoder, do not matter for loading.)
+REMOVED_OPTIONS = dict(action_history=0, context_dim=0, correction="free", oracle_params=0)
 
 
 def model_from_config(cfg, prior=None):
     """Rebuild the model of a run (config.json). v1 runs lack the v2 keys: v1 values are used."""
+    keys = list(REMOVED_OPTIONS)[:2] + (list(REMOVED_OPTIONS)[2:] if cfg.get("head") == "physics" else [])
+    used = [f"{k}={cfg[k]}" for k in keys if cfg.get(k) not in (None, REMOVED_OPTIONS[k])]
+    if cfg.get("head") == "residual":
+        used.append("head=residual")
+    if used:
+        raise ValueError(f"this run uses {', '.join(used)}, removed from this version of the code: "
+                         f"check out the tag ultrastick-final to load it")
     if cfg.get("mode") == "mlp_direct":                              # plain MLP baseline, no latent
         from wingjepa.models.mlp_direct import MLPDirect
         return MLPDirect.from_config(cfg)
     from wingjepa.data.windows import Normalizer
     ints = lambda v, d: tuple(int(x) for x in str(v).split(",")) if v is not None else d
-    head = cfg.get("head", "mlp")
     return WorldModel(z_dim=cfg["z_dim"], tcn_channels=ints(cfg.get("channels"), (16, 16, 32)),
                       dilations=ints(cfg.get("dilations"), (1, 2, 4)),
-                      n_ctx=5 if cfg.get("aircraft_input") else 0, head=head,
+                      n_ctx=5 if cfg.get("aircraft_input") else 0, head=cfg.get("head", "mlp"),
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
-                      correction=cfg.get("correction", "free"), param_bound=cfg.get("param_bound", 0.0),
-                      action_history=int(cfg.get("action_history", 0)), target_window=cfg.get("target_window", 0),
-                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None,
-                      n_oracle=8 if cfg.get("oracle_params") and head == "physics" else 0,
-                      context_dim=int(cfg.get("context_dim") or 0),
-                      context_channels=ints(cfg.get("context_channels"), (8, 8, 16)))
+                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None)

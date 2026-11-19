@@ -16,34 +16,9 @@ more effective control surface...). It is initialized to zero: at the start, the
 Control surfaces: the commands are used (first-order actuators with a 0.02 s time constant, faster than the step).
 
 The prior is a model linear in its parameters, with coefficients in stability axes like the NASA tables
-(regressors: TERMS; fitted, generic 25th, wrong or null: scripts/fit_prior.py).
-
-correction="param" (constrained head): no free forces. From z_0 alone (2 s of past + mass and inertias),
-the network outputs ONCE PER FLIGHT a change of each of the 38 prior coefficients (stability derivatives,
-control effectiveness, thrust curve): c = c_prior + scale * delta, scale = |c_prior| + 10 % of the mean
-|c| of its group. The physics then propagates the state with these coefficients, nothing is added step by
-step: the network can only identify the aircraft, the equations carry the dynamics. Needs a prior with
-structure (with the null prior the coefficients cannot move).
-param_bound B > 0: delta = B * tanh(out_scale * raw / B), each coefficient stays within +-B * scale of the
-prior (same as unbounded for small changes). Without it, a poor prior can push coefficients through a sign
-change, the dynamics diverge and the training stops learning.
-
-correction="porth" (port-Hamiltonian head, energy structure): the learned forces and moments are not free
-any more. With the energy H = 1/2 m |v|^2 + 1/2 w^T I w + m g h, the velocities e = (u, v, w, p, q, r) are
-dH/d(momenta). The network outputs, at every step from z_k, the state and the inputs, three matrices acting
-on the dimensionless e_hat = (u, v, w, p b, q c, r b) / Va:
-  C = (J - R) e_hat + G u,   J = -J^T (6 x 6),   R = L L^T >= 0 (6 x 6),   G (6 x 4),   u = the 4 commands,
-and the body forces and moments are qS * C (times b, c, b for the moments), as for the free correction.
-J exchanges energy without creating it (lift, side force, cross couplings: e^T J e = 0), R can only remove
-it (drag, damping: e^T R e >= 0) and only the commands bring it in (thrust, control surfaces): the power
-of the learned aerodynamics is qS Va (- e_hat^T R e_hat + e_hat^T G u) <= qS Va e_hat^T G u. Gravity and
-the rigid-body (gyroscopic) terms stay the exact Newton-Euler terms. Added to the prior like the free
-correction (with the null prior, all the aerodynamics is learned inside this structure). At the start,
-J = 0, G = 0 and R = 0.03^2 I (a small damping, so that L has a gradient).
-Every entry of J and G is bounded to +-PORTH_BOUND and every entry of L to +-sqrt(PORTH_BOUND / 6) (B tanh(x / B),
-the identity for small values), so |R_ij| <= PORTH_BOUND: about twice the largest coefficient of a real airframe
-(lift slope, pitch damping). Unbounded, the quadratic R = L L^T grows fast, the dynamics become too stiff for
-the explicit RK4 step, the state hits its safety bounds where the gradient is zero, and training stays stuck.
+(regressors: TERMS). The SkyJEPA suite uses the null prior with the geometry of the advanced_plane
+(configs/priors/advanced_plane_nul.json): all the aerodynamics is learned. The fitted, generic and wrong priors of
+the Ultra Stick study were built by archive/ultrastick/scripts/fit_prior.py.
 """
 import math
 
@@ -78,29 +53,15 @@ def regressors(alpha, beta, de, da, dr, phat, qhat, rhat, thr, Va):
     }
 
 
-PORTH_BOUND = 10.0   # bound of each entry of J, G and R (porth correction)
-
-
 class PhysicsHead(nn.Module):
-    """prior: dict (scripts/fit_prior.py) with coef {name: list}, rho, S, b, c, g.
+    """prior: dict (configs/priors/*.json) with coef {name: list}, rho, S, b, c, g.
     norm_mean, norm_std: normalization of the 16 quantities (to read the inputs and return normalized
     outputs, like the MLP decoder)."""
 
-    def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05,
-                 correction="free", param_bound=0.0, n_oracle=0):
+    def __init__(self, prior, norm_mean, norm_std, z_dim=32, hidden=64, out_scale=0.1, n_sub=1, dt=0.05):
         super().__init__()
-        assert correction in ("free", "param", "porth"), correction
-        self.mode, self.param_bound = correction, param_bound
-        # n_oracle > 0: the correction network also reads the true aircraft parameters beyond mass and
-        # inertia (columns 5: of ac, windows.aircraft_params(oracle=True)), a diagnostic upper bound
-        self.n_oracle = n_oracle
         for k in COEFS:
             self.register_buffer(f"c_{k}", torch.tensor(prior["coef"][k], dtype=torch.float32))
-        scale = []
-        for k in COEFS:
-            c = torch.tensor(prior["coef"][k], dtype=torch.float32).abs()
-            scale.append(c + 0.1 * c.mean() + 1e-6)
-        self.register_buffer("coef_scale", torch.cat(scale), persistent=False)     # (38,), rebuilt from the prior
         self.rho, self.S, self.b, self.c, self.g = (float(prior[k]) for k in ("rho", "S", "b", "c", "g"))
         self.register_buffer("mean", torch.as_tensor(norm_mean, dtype=torch.float32))
         self.register_buffer("std", torch.as_tensor(norm_std, dtype=torch.float32))
@@ -109,34 +70,21 @@ class PhysicsHead(nn.Module):
         self.register_buffer("hi", torch.tensor([80.0, 40, 40, 8, 8, 8, math.pi, 1.4]))
         self.out_scale, self.n_sub, self.dt = out_scale, n_sub, dt
         self._step = self.step                                   # replaced by a compiled version (compile_step())
-        if correction == "param":
-            n_in, n_out = z_dim, len(self.coef_scale)
-        elif correction == "porth":
-            iu, il = torch.triu_indices(6, 6, 1), torch.tril_indices(6, 6, 0)
-            self.register_buffer("iu", iu, persistent=False)
-            self.register_buffer("il", il, persistent=False)
-            self.register_buffer("il_diag", (il[0] == il[1]).nonzero()[:, 0], persistent=False)
-            n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, iu.shape[1] + il.shape[1] + 6 * N_CTRL   # 15+21+24
-        else:
-            n_in, n_out = z_dim + N_STATE + N_CTRL + N_WIND, 6
-        n_in += n_oracle
-        self.net = nn.Sequential(nn.Linear(n_in, hidden), nn.GELU(),
-                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, n_out))
+        self.net = nn.Sequential(nn.Linear(z_dim + N_STATE + N_CTRL + N_WIND, hidden), nn.GELU(),
+                                 nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, 6))
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
 
     # ---------- prior
-    def coefficients(self, dcoef=None):
-        """The 38 coefficients in COEFS order: (38,) for the prior, (B, 38) changed by dcoef (B, 38)."""
-        c = torch.cat([getattr(self, f"c_{k}") for k in COEFS])
-        return c if dcoef is None else c + dcoef * self.coef_scale
+    def coefficients(self):
+        """The 38 coefficients of the prior, in COEFS order (38,)."""
+        return torch.cat([getattr(self, f"c_{k}") for k in COEFS])
 
-    def prior_body(self, alpha, beta, de, da, dr, p, q, r, thr, Va, dcoef=None):
-        """Prior coefficients in body axes (B, 6): CX, CY, CZ (thrust included), Cl, Cm, Cn.
-        dcoef (B, 38): per-flight change of the coefficients (constrained head), None = prior as is."""
+    def prior_body(self, alpha, beta, de, da, dr, p, q, r, thr, Va):
+        """Prior coefficients in body axes (B, 6): CX, CY, CZ (thrust included), Cl, Cm, Cn."""
         V2 = 2 * Va
         R = regressors(alpha, beta, de, da, dr, p * self.b / V2, q * self.c / V2, r * self.b / V2, thr, Va)
-        cf, C, i = self.coefficients(dcoef), {}, 0
+        cf, C, i = self.coefficients(), {}, 0
         for k in COEFS:
             C[k] = sum(cf[..., i + j] * x for j, x in enumerate(R[k]))
             i += len(R[k])
@@ -148,27 +96,6 @@ class PhysicsHead(nn.Module):
         Cl = ca * C["Cl"] - sa * C["Cn"]
         Cn = sa * C["Cl"] + ca * C["Cn"]
         return torch.stack([CX, C["CY"], CZ, Cl, C["Cm"], Cn], -1)
-
-    def porth_matrices(self, M):
-        """Network output (B, 60) -> J (B, 6, 6) skew, R (B, 6, 6) positive semi-definite, G (B, 6, 4)."""
-        B, n_j, n_l = M.shape[0], self.iu.shape[1], self.il.shape[1]
-        bj, bl = PORTH_BOUND, math.sqrt(PORTH_BOUND / 6)
-        A = M.new_zeros(B, 6, 6)
-        A[:, self.iu[0], self.iu[1]] = bj * torch.tanh(M[:, :n_j] / bj)
-        lv = M[:, n_j:n_j + n_l].clone()
-        lv[:, self.il_diag] = nn.functional.softplus(lv[:, self.il_diag] - 3.49)   # 0.03 at the start
-        L = M.new_zeros(B, 6, 6)
-        L[:, self.il[0], self.il[1]] = bl * torch.tanh(lv / bl)
-        G = bj * torch.tanh(M[:, n_j + n_l:] / bj)
-        return A - A.transpose(1, 2), L @ L.transpose(1, 2), G.reshape(B, 6, N_CTRL)
-
-    def porth_body(self, M, Va, alpha, beta, p, q, r, ctrl):
-        """Port-Hamiltonian body-axis coefficients (B, 6): (J - R) e_hat + G u."""
-        J, R, G = self.porth_matrices(M)
-        cb = torch.cos(beta)
-        e = torch.stack([torch.cos(alpha) * cb, torch.sin(beta), torch.sin(alpha) * cb,
-                         p * self.b / Va, q * self.c / Va, r * self.b / Va], -1)
-        return ((J - R) @ e[..., None])[..., 0] + (G @ ctrl[..., None])[..., 0]
 
     # ---------- state
     @staticmethod
@@ -193,19 +120,13 @@ class PhysicsHead(nn.Module):
 
     # ---------- dynamics
     def derivatives(self, x, ctrl, dC, ac):
-        """x (B, 8), ctrl (B, 4) physical, ac (B, 5) mass and inertias; dC: correction, (B, 6) body-axis
-        coefficients added to the prior ("free"), or (B, 38) change of the prior coefficients ("param")."""
+        """x (B, 8), ctrl (B, 4) physical, ac (B, 5) mass and inertias; dC (B, 6): correction, body-axis
+        coefficients added to the prior."""
         # bounds also at the intermediate RK4 stages (otherwise theta can cross 90 deg there: infinite tan)
         x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         u, v, w, p, q, r, phi, th = x.unbind(-1)
         Va, alpha, beta = self.air_data(x)
-        args = (alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va)
-        if self.mode == "param":
-            C = self.prior_body(*args, dcoef=dC)
-        elif self.mode == "porth":
-            C = self.prior_body(*args) + self.porth_body(dC, Va, alpha, beta, p, q, r, ctrl)
-        else:
-            C = self.prior_body(*args) + dC
+        C = self.prior_body(alpha, beta, ctrl[:, 0], ctrl[:, 1], ctrl[:, 2], p, q, r, ctrl[:, 3], Va) + dC
         qS = 0.5 * self.rho * Va * Va * self.S
         m, Ixx, Iyy, Izz, Ixz = ac[..., :5].unbind(-1)
         g = self.g
@@ -236,13 +157,10 @@ class PhysicsHead(nn.Module):
             x = torch.maximum(torch.minimum(x, self.hi), self.lo)
         return x
 
-    def correction(self, z, s_n=None, u_n=None, extra=None):
-        """Correction and raw network output (for the size penalty): (B, 6) from z_k, the state and the
-        inputs ("free"), or (B, 38) coefficient changes from z_0 alone ("param"). extra: oracle parameters."""
-        x = z if self.mode == "param" else torch.cat([z, s_n, u_n], -1)
-        raw = self.net(x if extra is None else torch.cat([x, extra], -1))
-        if self.mode == "param" and self.param_bound > 0:
-            return self.param_bound * torch.tanh(raw * self.out_scale / self.param_bound), raw
+    def correction(self, z, s_n, u_n):
+        """Correction (B, 6) from z_k, the normalized state and inputs, and the raw network output (for the size
+        penalty)."""
+        raw = self.net(torch.cat([z, s_n, u_n], -1))
         return raw * self.out_scale, raw
 
     def compile_step(self):
@@ -256,24 +174,16 @@ class PhysicsHead(nn.Module):
     def forward(self, zs, s0, U, ac):
         """zs (B, T, D): latents z_0..z_{T-1} (start of each step); s0 (B, 9): last observed state,
         normalized; U (B, T, 7): normalized future inputs; ac (B, 5).
-        -> normalized predicted states (B, T, 9), raw outputs of the correction: (B, T, 6) ("free"),
-        (B, T, 60) ("porth": J, L, G), or (B, 1, 38) ("param", one set of coefficients for the whole prediction)."""
+        -> normalized predicted states (B, T, 9), raw outputs of the correction (B, T, 6)."""
         mean_s, std_s = self.mean[:N_STATE], self.std[:N_STATE]
         mean_u, std_u = self.mean[N_STATE:], self.std[N_STATE:]
         Uph = U * std_u + mean_u
         x = self.from_features(s0 * std_s + mean_s)
         s_n, out, raws = s0, [], []
-        extra = ac[:, 5:5 + self.n_oracle] if self.n_oracle else None
-        if extra is not None:
-            assert extra.shape[1] == self.n_oracle, "oracle head: pass aircraft_params(meta, oracle=True)"
         ac = ac[:, :5]
-        if self.mode == "param":
-            dC, raw = self.correction(zs[:, 0], extra=extra)
-            raws.append(raw)
         for k in range(U.shape[1]):
-            if self.mode != "param":
-                dC, raw = self.correction(zs[:, k], s_n, U[:, k], extra)
-                raws.append(raw)
+            dC, raw = self.correction(zs[:, k], s_n, U[:, k])
+            raws.append(raw)
             # contiguous copy: a strided view of Uph changes stride with the horizon T, and every new
             # stride would make the compiled step recompile (then fall back to the slow path)
             x = self._step(x, Uph[:, k, :N_CTRL].contiguous(), dC, ac)

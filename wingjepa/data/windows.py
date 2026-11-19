@@ -50,31 +50,14 @@ def features(data, ch, dt=0.05):
     return X, alive, c["h"].astype(np.float32)
 
 
+# per-flight randomization factors in the metadata of every set (motor power factor, CG shift, aerodynamic scale
+# factors): simulator ground truth, never a model input
 ORACLE = ["power_scale", "cg_shift"] + [f"aero_scale_{k}" for k in ("CD", "CY", "CL", "Cl", "Cm", "Cn")]
 
 
-def aircraft_params(meta, oracle=False):
-    """(n, 5) float32: mass and inertias of each flight, in AIRCRAFT order.
-    oracle=True: (n, 13), followed by the 8 ORACLE parameters drawn by the simulator for each flight (motor
-    power factor, CG shift, aerodynamic scale factors), normalized: (factor - 1) / 0.3 and cg_shift / 0.05.
-    Used only by the "oracle" physics head (train_a.py --oracle-params 1), which tells how much of its
-    error comes from identifying the aircraft."""
-    P = np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
-    if not oracle:
-        return P
-    extra = [(meta[k] - 1) / 0.3 if k != "cg_shift" else meta[k] / 0.05 for k in ORACLE]
-    return np.concatenate([P, np.stack(extra, 1).astype(np.float32)], 1)
-
-
-def nominal_params(P):
-    """Same array as aircraft_params, with the nominal aircraft for every flight: nominal mass and inertias
-    (configs/ultrastick120.yaml) and, for the oracle columns, factors 1 and no CG shift (normalized 0). Used to
-    test a physics head that is NOT told the true mass and inertia of the aircraft."""
-    from wingjepa.models.jepa import NOMINAL_AIRCRAFT
-    Q = np.array(P, np.float32, copy=True)
-    Q[:, :5] = np.asarray(NOMINAL_AIRCRAFT, np.float32)
-    Q[:, 5:] = 0.0
-    return Q
+def aircraft_params(meta):
+    """(n, 5) float32: mass and inertias of each flight, in AIRCRAFT order."""
+    return np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
 
 
 def true_wind_features(data, ch):
@@ -157,22 +140,6 @@ class WindowSampler:
 
     def sample_rows(self, B):
         return self.rng.integers(0, len(self.idx), B)
-
-    def partner_rows(self, rows, min_gap=0):
-        """For each row, another window of the SAME flight, drawn uniformly among the flight's windows and
-        redrawn (a few times) when it starts less than min_gap steps from the first one. self.idx is sorted by
-        flight (window_starts), so the windows of a flight are a contiguous block."""
-        fl = self.idx[:, 0]
-        f = fl[rows]
-        lo, hi = np.searchsorted(fl, f, "left"), np.searchsorted(fl, f, "right")
-        draw = lambda m: lo[m] + (self.rng.random(m.sum()) * (hi - lo)[m]).astype(np.int64)
-        out = draw(np.ones(len(rows), bool))
-        for _ in range(8):
-            close = np.abs(self.idx[out, 1] - self.idx[rows, 1]) < min_gap
-            if not close.any():
-                break
-            out[close] = draw(close)
-        return out
 
     def fixed_rows(self, B, seed=123):
         return np.random.default_rng(seed).choice(len(self.idx), min(B, len(self.idx)), replace=False)

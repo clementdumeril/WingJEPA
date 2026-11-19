@@ -196,7 +196,7 @@ def main():
 
         def lat1(X, st, meta):
             seq = norm(windows(X, st, H + 1, end + 1)).astype(np.float32)
-            ac = aircraft_params(meta, oracle=True)[st[:, 0]] if uses_ac else None
+            ac = aircraft_params(meta)[st[:, 0]] if uses_ac else None
             return step1(model, seq, H, ac)
         F_fit, F_te = lat1(Xtr, st_fit, meta_tr), lat1(Xte, st_te, meta_te)
         groups = {g: (F_te[m], Yte[st_te[m, 0]]) for g, m in g_te.items()}

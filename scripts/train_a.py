@@ -1,16 +1,16 @@
-"""Training of model A (black box), of the A0 reference (no JEPA) and of model C (physics head).
+"""Training of the world models of the SkyJEPA test suite: JEPA (model A), the A0 reference (no JEPA), the physics
+head (model C) and the plain MLP baseline.
 
   --mode jepa    : stage 1 = encoder + predictor, JEPA loss + lambda * SIGReg (predicted latents);
                    stage 2 = decoder alone (encoder and predictor frozen), state error.
   --mode a0      : same network trained in one block on the state error (direct prediction, no JEPA).
-  --mode jepa_ft : JEPA as pre-training: stage 1 as in jepa, then stage 2 fine-tunes the whole network
-                   (encoder, predictor, decoder) on the state error, at peak learning rate --ft-lr.
-  --mode joint   : JEPA + SIGReg + state error together, decoder learned at the same time (not frozen).
   --mode mlp_direct: plain MLP dynamics model (Nagabandi et al. 2018, models/mlp_direct.py): flattened window of
                    the last H states and commands + next command and wind -> state increment, rolled out
                    autoregressively; same loss, optimizer, schedule and data as a0. Widths: --mlp-hidden.
   --mode c_direct: like a0, with the physics head (--prior) instead of the MLP decoder; loss = state
                    error + --lambda-res * size of the learned correction (APHYNITY idea).
+  --mode c_jepa  : trunk (encoder + predictor) of a jepa or a0 run (--trunk) frozen, only the physics head is
+                   learned (like the SkyJEPA physics probe), same loss as c_direct.
   --lambda-phys L (a0): physics in the loss instead of the architecture (Pred + Phys Reg in SkyJEPA): the MLP
                    predictions are also penalized, with weight L, when they violate the kinematics known for
                    any aircraft (attitude kinematics from p, q, r; vertical speed from Va, alpha, beta, attitude).
@@ -18,45 +18,30 @@
                    in [0, S] for each window, added to the past states (the H context steps) of every training
                    batch; the future states (targets) and the validation batches stay clean. Same noise model
                    as the robustness tests, so S = 0.5 covers all the tested levels.
-  --oracle-params 1 (c_direct, c_jepa): the correction network of the physics head also reads the true motor,
-                   CG and aerodynamic scale factors of each flight (windows.aircraft_params(oracle=True)). Not a
-                   model for use: the gap to the same run without it is the cost of identifying the aircraft.
-  --mode c_jepa  : trunk (encoder + predictor) of a jepa run (--trunk) frozen, only the physics head is
-                   learned (like the SkyJEPA physics probe), same loss as c_direct.
-  --correction param (c_direct, c_jepa): constrained physics head, no free forces; the 38 prior coefficients
-                   are changed once per flight from z_0 (models/physics.py). Default free: 6 body-axis
-                   coefficients added to the prior at every step.
---correction porth (c_direct, c_jepa): port-Hamiltonian head, the learned forces and moments are
-                   (J - R) e + G u with J skew, R >= 0 and e the velocities: they cannot create energy, only the
-                   commands bring it in (models/physics.py).
---action-history 1: the encoder also reads the past commands (second TCN, merged at the output layer);
-                   2: one joint TCN over the past states and commands, mixed from the first layer. Both go
-                   beyond SkyJEPA, whose state encoder reads the states only. A c_jepa run takes this from its trunk.
---target-window Ht (jepa, joint): the JEPA targets encode windows of the last Ht steps instead of H, so that
-                   they share fewer steps with the context window.
 --action-encoder 1: as in SkyJEPA (eq. 7-8), the predictor receives at each step the encoding of the
                    commands applied up to that step (TCN of --act-channels) instead of the raw command; the
                    state latent and the JEPA targets stay states only. A c_jepa run takes this from its trunk.
 Training horizon: from --T steps at the start up to --T-max steps (linear curriculum reached at
 --curriculum-frac of the training); validation always uses --T-max.
 The best weights on the validation flights are kept.
---ema TAU (> 0): the JEPA targets come from a slow copy of the encoder, updated after every step as
-target = TAU * target + (1 - TAU) * encoder, with no gradient through the targets (I-JEPA / V-JEPA).
 
-v2 inputs by default (2 s of past, 5-layer encoder, mass and inertias as input). To redo a v1 run:
---H 10 --channels 16,16,32 --dilations 1,2,4 --aircraft-input 0.
+Options of the earlier Ultra Stick studies (other modes, constrained and port-Hamiltonian heads, command-history
+encoders, context latent, EMA target encoder...) are in the tag ultrastick-final; config.json still records them
+at their "off" value (REMOVED below), so that runs started before their removal resume and read the same.
 
-Restart: the training state is saved every --checkpoint-min minutes in <out>/resume.pt. A run stopped by
-the time limit, resubmitted with the same command, continues where it stopped (same steps, same random
+v2 inputs by default (2 s of past, 5-layer encoder, mass and inertias as input). The SkyJEPA suite uses
+--H 11 --channels 8,8,16 --dilations 1,2,4 --z-dim 24 --aircraft-input 0 --action-encoder 1.
+
+Restart: the training state is saved every --checkpoint-min minutes in <out>/resume.pt. A run stopped by the
+time limit, resubmitted with the same command, continues where it stopped (same steps, same random
 draws); the file is deleted when the run finishes. --device cuda trains on a GPU (needs a CUDA build of
 torch, cluster/setup_gpu_env.sh); model.pt is always saved on the CPU.
 
-Usage: python scripts/train_a.py --data-dir <out_dir>/data_v1 --out runs/model_a --mode jepa
-       python scripts/train_a.py ... --mode c_direct --prior <data_dir>/priors/ajuste.json
-       python scripts/train_a.py ... --mode c_jepa --prior <...>/ajuste.json --trunk runs/jepa_v2T100_s0
+Usage: python scripts/train_a.py --data-dir data/data_advanced --out runs/a0_adv_s0 --mode a0
+       python scripts/train_a.py ... --mode c_direct --prior configs/priors/advanced_plane_nul.json
+       python scripts/train_a.py ... --mode c_jepa --prior configs/priors/advanced_plane_nul.json --trunk runs/jepa_adv_s0
 """
 import argparse
-import copy
 import json
 import math
 import os
@@ -71,6 +56,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.data.windows import (FEATURES, N_CTRL, N_STATE, Normalizer, WindowSampler, aircraft_params,  # noqa: E402
                                    features, load_set, split_mask)
 from wingjepa.models.jepa import model_from_config, sigreg  # noqa: E402
+
+MODES = ["jepa", "a0", "c_direct", "c_jepa", "mlp_direct"]
+# options removed with the earlier studies, at the value they had in every run of this pipeline: still written in
+# config.json and in the restart key, so both stay identical to those of the runs started before the removal
+REMOVED = dict(action_history=0, target_window=0, context_dim=0, context_channels="8,8,16", id_jepa=0.0,
+               id_gap_s=2.0, lambda_state=1.0, oracle_params=0, correction="free", param_bound=0.0,
+               head_kind="physics", ema=0.0, ft_lr=1e-3)
 
 
 def lr_at(step, total, peak, warmup, floor):
@@ -136,10 +128,10 @@ class Resume:
         self.path.unlink(missing_ok=True)
 
 
-def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, peak=None, after_step=None):
+def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume):
     if resume.finished(name) is not None:           # completed before the restart
         return resume.finished(name)
-    peak = peak or a.lr
+    peak = a.lr
     opt = torch.optim.Adam(params, lr=peak, weight_decay=a.weight_decay)
     start, best, skipped, sec = resume.restore(name, opt)
     t0, streak = time.time() - sec, 0
@@ -154,8 +146,6 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, p
         if torch.isfinite(loss) and torch.isfinite(gnorm):
             opt.step()
             streak = 0
-            if after_step:
-                after_step()
         else:
             skipped, streak = skipped + 1, streak + 1
             # every batch non-finite: the weights no longer move, the run is dead (stop instead of idling)
@@ -179,59 +169,33 @@ def run_stage(name, params, loss_fn, val_fn, steps, a, log, save_best, resume, p
     return best
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--set", default="train")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--mode", choices=["jepa", "jepa_ft", "a0", "joint", "c_direct", "c_jepa", "mlp_direct"],
-                    default="jepa")
+    ap.add_argument("--mode", choices=MODES, default="jepa")
     ap.add_argument("--H", type=int, default=40, help="past steps (0.05 s)")
     ap.add_argument("--channels", default="16,16,32,32,32", help="channels of the encoder layers")
     ap.add_argument("--dilations", default="1,2,4,8,16", help="receptive field = 1 + 2 * sum")
     ap.add_argument("--aircraft-input", type=int, default=1, help="mass and inertias as input (1) or not (0)")
-    ap.add_argument("--action-history", type=int, default=0,
-                    help="1: the encoder also reads the past commands (second TCN); 2: joint TCN over states and commands")
-    ap.add_argument("--target-window", type=int, default=0,
-                    help="steps of the windows encoded as JEPA targets (default 0: --H)")
     ap.add_argument("--action-encoder", type=int, default=0,
                     help="1: the predictor reads the commands through an action encoder (SkyJEPA's Enc_phi)")
     ap.add_argument("--act-channels", default="4,4,8", help="channels of the action encoder layers")
-    ap.add_argument("--context-dim", type=int, default=0,
-                    help="> 0: context latent of that size, read from the past states and commands, given to the "
-                         "GRU at every step and to the head; the target of no loss (aircraft identity)")
-    ap.add_argument("--context-channels", default="8,8,16", help="channels of the context encoder layers")
-    ap.add_argument("--id-jepa", type=float, default=0.0,
-                    help="> 0 (needs --context-dim): identification JEPA on the context latent, with this weight: two "
-                         "windows of the same flight must give the same c (the aircraft is the only thing they surely "
-                         "share), SIGReg keeps the c of a batch spread out; added to the training loss of the trunk")
-    ap.add_argument("--id-gap-s", type=float, default=2.0, help="minimum time between the two windows (s)")
     ap.add_argument("--T", type=int, default=20, help="training horizon at the start (steps of 0.05 s)")
     ap.add_argument("--T-max", type=int, default=None, help="final horizon (default: --T, no curriculum)")
     ap.add_argument("--curriculum-frac", type=float, default=0.5)
-    ap.add_argument("--lambda-state", type=float, default=1.0, help="weight of the state error (joint mode)")
-    ap.add_argument("--prior", default=None, help="prior of the physics head (scripts/fit_prior.py)")
-    ap.add_argument("--trunk", default=None, help="jepa run whose frozen trunk is reused (c_jepa mode)")
+    ap.add_argument("--prior", default=None, help="prior of the physics head (configs/priors/*.json)")
+    ap.add_argument("--trunk", default=None, help="jepa or a0 run whose frozen trunk is reused (c_jepa mode)")
     ap.add_argument("--lambda-res", type=float, default=1e-3, help="penalty on the size of the correction")
     ap.add_argument("--lambda-phys", type=float, default=0.0,
                     help="physics in the loss (a0 mode, MLP head): weight of the kinematic residuals of the "
                          "predicted states (attitude kinematics, vertical speed), like Pred + Phys Reg in SkyJEPA")
     ap.add_argument("--input-noise", type=float, default=0.0,
                     help="noise augmentation: max std (normalized units) of the noise added to the past states")
-    ap.add_argument("--oracle-params", type=int, default=0,
-                    help="1: the physics head also reads the true aero, motor and CG factors of each flight "
-                         "(diagnostic: the error left when the aircraft does not have to be identified)")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
-    ap.add_argument("--correction", choices=["free", "param", "porth"], default="free",
-                    help="physics head: free forces at every step, prior coefficients changed once per flight, "
-                         "or forces with a port-Hamiltonian (energy) structure at every step")
-    ap.add_argument("--param-bound", type=float, default=0.0,
-                    help="constrained head: largest change of a coefficient, in units of its scale (0 = no bound)")
     ap.add_argument("--max-skip-streak", type=int, default=500,
                     help="stop when this many batches in a row have a non-finite loss or gradient")
-    ap.add_argument("--head-kind", choices=["physics", "residual"], default="physics",
-                    help="c_direct, c_jepa: physics head, or the residual MLP control (same inputs and integration, "
-                         "no equations of motion, no prior)")
     ap.add_argument("--n-sub", type=int, default=1, help="RK4 sub-steps per 0.05 s step (physics head)")
     ap.add_argument("--compile", type=int, default=0, help="1: compile the physics-head step (torch.compile)")
     ap.add_argument("--mlp-hidden", default="50,50",
@@ -246,8 +210,6 @@ def main():
     ap.add_argument("--weight-decay", type=float, default=1e-5)
     ap.add_argument("--clip", type=float, default=0.5)
     ap.add_argument("--lambda-sig", type=float, default=0.02)
-    ap.add_argument("--ema", type=float, default=0.0, help="slow target encoder (e.g. 0.996); 0 = off")
-    ap.add_argument("--ft-lr", type=float, default=1e-3, help="peak learning rate of the fine-tuning (jepa_ft)")
     ap.add_argument("--sigreg-proj", type=int, default=128)
     ap.add_argument("--sigreg-steps", type=int, default=4)
     ap.add_argument("--eval-every", type=int, default=500)
@@ -257,7 +219,33 @@ def main():
     ap.add_argument("--device", default="cpu", help="cpu, cuda, or auto (cuda if a GPU is visible)")
     ap.add_argument("--checkpoint-min", type=float, default=15.0,
                     help="minutes between saves of the training state (resume.pt); 0 = off")
-    a = ap.parse_args()
+    ap.set_defaults(**REMOVED)                      # no command-line flag: fixed values, see REMOVED
+    return ap
+
+
+def resolve(ap, a):
+    """Options derived from the command line, in place: head, prior (file name and loaded content) and, for c_jepa,
+    the architecture of the trunk. Returns the trunk config (None outside c_jepa)."""
+    physics = a.mode in ("c_direct", "c_jepa")
+    a.head = "physics" if physics else "mlp"
+    if physics and not a.prior:
+        ap.error("--prior is required for the c_direct and c_jepa modes")
+    a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
+    trunk_cfg = None
+    if a.mode == "c_jepa":
+        if not a.trunk:
+            ap.error("--trunk is required for the c_jepa mode")
+        trunk_cfg = json.load(open(Path(a.trunk) / "config.json"))
+        for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # trunk architecture
+            setattr(a, k, trunk_cfg.get(k, getattr(a, k)))
+        a.action_encoder = trunk_cfg.get("action_encoder", 0)
+        a.act_channels = trunk_cfg.get("act_channels", a.act_channels)
+    return trunk_cfg
+
+
+def main(argv=None):
+    ap = build_parser()
+    a = ap.parse_args(argv)
 
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
@@ -267,35 +255,12 @@ def main():
     dev = torch.device(a.device)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    physics = a.mode in ("c_direct", "c_jepa") and a.head_kind == "physics"
-    a.head = "physics" if physics else ("residual" if a.mode in ("c_direct", "c_jepa") else "mlp")
-    if physics and not a.prior:
-        ap.error("--prior is required for the c_direct and c_jepa modes")
-    if a.mode == "mlp_direct" and a.ema > 0:
-        ap.error("--ema needs a latent model (no encoder in the mlp_direct mode)")
-    if a.mode == "mlp_direct" and a.context_dim:
-        ap.error("--context-dim needs a latent model")
-    if a.id_jepa > 0 and not a.context_dim:
-        ap.error("--id-jepa needs --context-dim")
-    if a.id_jepa > 0 and a.mode == "c_jepa":
-        ap.error("--id-jepa trains the trunk: give it to the jepa / a0 run, not to c_jepa (frozen trunk)")
-    a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
-    trunk_cfg = None
-    if a.mode == "c_jepa":
-        if not a.trunk:
-            ap.error("--trunk is required for the c_jepa mode")
-        trunk_cfg = json.load(open(Path(a.trunk) / "config.json"))
-        for k in ("H", "z_dim", "channels", "dilations", "aircraft_input"):     # trunk architecture
-            setattr(a, k, trunk_cfg.get(k, getattr(a, k)))
-        a.action_history = trunk_cfg.get("action_history", 0)
-        a.action_encoder = trunk_cfg.get("action_encoder", 0)
-        a.act_channels = trunk_cfg.get("act_channels", a.act_channels)
-        a.context_dim = trunk_cfg.get("context_dim", 0)
-        a.context_channels = trunk_cfg.get("context_channels", a.context_channels)
+    trunk_cfg = resolve(ap, a)
+    physics = a.head == "physics"
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
-    P = aircraft_params(meta, oracle=bool(a.oracle_params))
+    P = aircraft_params(meta)
     tr, va = split_mask(meta, "train", a.seed), split_mask(meta, "val", a.seed)
     norm = Normalizer.from_dict(trunk_cfg["norm"]) if trunk_cfg else Normalizer.fit(X[tr], alive[tr])
     Xn = norm(X)
@@ -320,8 +285,6 @@ def main():
         trunk.load_state_dict(torch.load(Path(a.trunk) / "model.pt", map_location="cpu"))
         model.encoder.load_state_dict(trunk.encoder.state_dict())
         model.predictor.load_state_dict(trunk.predictor.state_dict())
-        if model.context_enc is not None:
-            model.context_enc.load_state_dict(trunk.context_enc.state_dict())
     print(f"parameters: {model.n_params()} (total {sum(model.n_params().values())}); "
           f"encoder receptive field {getattr(model, 'encoder', model).receptive_field} steps for H = {a.H}",
           flush=True)
@@ -344,30 +307,6 @@ def main():
             seq[:, :H, :N_STATE] += sig * torch.randn_like(seq[:, :H, :N_STATE])
         ac = torch.from_numpy(S_tr.aircraft(rows)).to(dev)
         return (seq, ac, clean) if keep_clean else (seq, ac)
-
-    def id_loss():
-        """Identification JEPA: context latents c of two windows of the same flight, at least --id-gap-s apart, must
-        match (invariance); SIGReg on each set of c prevents the trivial constant solution. Same noise augmentation
-        as the main batch. Returns (loss, dict of parts)."""
-        rows = S_tr.sample_rows(a.batch)
-        pair = S_tr.partner_rows(rows, int(round(a.id_gap_s / 0.05)))
-        xs = []
-        for r in (rows, pair):
-            x = torch.from_numpy(S_tr.gather(r)[:, :H]).to(dev)
-            if a.input_noise > 0:
-                sig = a.input_noise * torch.rand(x.shape[0], 1, 1, device=dev)
-                x[:, :, :N_STATE] += sig * torch.randn_like(x[:, :, :N_STATE])
-            xs.append(x)
-        ca, cb = model.context_of(xs[0]), model.context_of(xs[1])
-        inv = ((ca - cb) ** 2).mean()
-        reg = 0.5 * (sigreg(ca, n_proj=a.sigreg_proj) + sigreg(cb, n_proj=a.sigreg_proj))
-        return a.id_jepa * (inv + a.lambda_sig * reg), dict(id_inv=inv.item(), id_sigreg=reg.item())
-
-    def with_id(loss, parts):
-        if a.id_jepa > 0:
-            li, pi = id_loss()
-            return loss + li, dict(parts, **pi)
-        return loss, parts
 
     def state_err(pred, seq):
         return ((pred - seq[:, H:, :N_STATE]) ** 2).mean()
@@ -413,18 +352,6 @@ def main():
     log = []
     ckpt = lambda: torch.save({k: v.cpu() for k, v in model.state_dict().items()}, out / "model.pt")
 
-    target_enc = None
-    if a.ema > 0:
-        target_enc = copy.deepcopy(model.encoder)
-        for p_ in target_enc.parameters():
-            p_.requires_grad_(False)
-
-    @torch.no_grad()
-    def ema_update():
-        for pt, p_ in zip(target_enc.parameters(), model.encoder.parameters()):
-            pt.mul_(a.ema).add_(p_.detach(), alpha=1 - a.ema)
-
-    after = ema_update if target_enc is not None else None
     # what must match for a restart: all the options but the machine-side ones; options added after
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
@@ -433,12 +360,12 @@ def main():
                  context_dim=0, context_channels="8,8,16", id_jepa=0.0, id_gap_s=2.0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
                      sort_keys=True, default=str)
-    resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model] + ([target_enc] if target_enc else []), S_tr, log)
+    resume = Resume(out / "resume.pt", a.checkpoint_min, key, [model], S_tr, log)
 
     def jepa_loss(seq, ac, clean=None):
         """clean: windows without the noise augmentation, encoded as targets (default seq itself)."""
         z0, zp, U = model.latents(seq, H, True, ac)
-        zt = model.target_latents(seq if clean is None else clean, H, ac, encoder=target_enc)
+        zt = model.target_latents(seq if clean is None else clean, H, ac)
         pred = ((zp - zt) ** 2).mean()
         # SIGReg on the predicted latents, averaged over time: estimated on a few randomly drawn steps
         ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
@@ -446,54 +373,33 @@ def main():
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
 
     trunk_params = (list(model.encoder.parameters()) + list(model.predictor.parameters())
-                    + (list(model.context_enc.parameters()) if model.context_enc is not None else [])
                     if getattr(model, "latent", True) else [])
-    if a.mode in ("jepa", "jepa_ft"):
+    if a.mode == "jepa":
         def loss1(step):
             T = T_at(step, a.steps1)
             loss, _, parts = jepa_loss(*nxt(T, keep_clean=True))
-            return with_id(loss, dict(parts, T=T))
+            return loss, dict(parts, T=T)
 
         def val1():
             # prediction error normalized by the spread of the target latents: independent of the
             # batch size, and penalizes collapse (if all the z look alike, it blows up)
             zp = model.predict_latents(val_seq, H, True, val_ac)
-            zt = model.target_latents(val_seq, H, val_ac, encoder=target_enc)
+            zt = model.target_latents(val_seq, H, val_ac)
             return ((zp - zt) ** 2).mean() / zt.reshape(-1, zt.shape[-1]).var(0).mean()
 
         resumed_in_stage2 = resume.finished("jepa") is not None       # the weights are already those of stage 2
-        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt, resume, after_step=after)
+        best1 = run_stage("jepa", trunk_params, loss1, val1, a.steps1, a, log, ckpt, resume)
         if not resumed_in_stage2:
             model.load_state_dict(torch.load(out / "model.pt"))
-        if a.mode == "jepa":
-            for p_ in trunk_params:
-                p_.requires_grad_(False)                              # stage 2: trunk frozen
+        for p_ in trunk_params:
+            p_.requires_grad_(False)                                  # stage 2: trunk frozen
 
-            def loss2(step):
-                return state_loss(*nxt(T_max), frozen=True)[0], {}
+        def loss2(step):
+            return state_loss(*nxt(T_max), frozen=True)[0], {}
 
-            best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
-                              resume)
-        else:                                                         # stage 2: fine-tune everything
-            def loss2(step):
-                return state_loss(*nxt(T_max))[0], {}
-
-            best2 = run_stage("finetune", list(model.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
-                              resume, peak=a.ft_lr)
+        best2 = run_stage("decodeur", list(model.decoder.parameters()), loss2, val_state, a.steps2, a, log, ckpt,
+                          resume)
         summary = dict(best_val_jepa=best1, best_val_state=best2)
-    elif a.mode == "joint":
-        steps = a.steps1 + a.steps2
-
-        def loss_joint(step):
-            T = T_at(step, steps)
-            seq, ac = nxt(T)
-            lj, (z0, zp, U), parts = jepa_loss(seq, ac)
-            ls = state_err(model.head_states(z0, zp, U, seq, H, ac)[0], seq)
-            return with_id(lj + a.lambda_state * ls, dict(parts, state=ls.item(), T=T))
-
-        best = run_stage("joint", list(model.parameters()), loss_joint, val_state, steps, a, log, ckpt,
-                         resume, after_step=after)
-        summary = dict(best_val_state=best)
     elif a.mode == "c_jepa":
         for p_ in trunk_params:
             p_.requires_grad_(False)
@@ -515,8 +421,8 @@ def main():
             ls, res, pred = state_loss(seq, ac)
             if a.lambda_phys > 0:
                 ph = phys_residual(pred, seq)
-                return with_id(ls + a.lambda_res * res + a.lambda_phys * ph, dict(state=ls.item(), phys=ph.item(), T=T))
-            return with_id(ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T))
+                return ls + a.lambda_res * res + a.lambda_phys * ph, dict(state=ls.item(), phys=ph.item(), T=T)
+            return ls + a.lambda_res * res, dict(state=ls.item(), res=res.item(), T=T)
 
         best = run_stage(a.mode, list(model.parameters()), loss_direct, val_state, steps, a, log, ckpt, resume)
         summary = dict(best_val_state=best)

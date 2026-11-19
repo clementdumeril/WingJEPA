@@ -17,14 +17,11 @@ For each model and each aircraft group of the set:
     noise_robustness); the other kinds go to noise_robustness_<kind>, their settings to noise_settings (both absent
     by default, so the default output is unchanged). Each kind has its own fixed seed, and the same realization
     is used for every model and level.
-Kinematics as in scripts/position_error.py: heading integrated from the predicted rates, air velocity rotated to
-north-east-up plus the last wind estimate held; truth from the simulator (north, east, altitude, heading).
+Kinematics: heading integrated from the predicted rates, air velocity rotated to north-east-up plus the last wind
+estimate held; truth from the simulator (north, east, altitude, heading).
 
---nominal-params 1: every model is given the NOMINAL mass and inertia (and nominal oracle factors) instead of
-the true ones of each flight: tells how much a physics head relies on knowing them (output suffix _nominal).
-
-Writes <model_dir>/eval_skyjepa_<set>[_nominal].json. Usage:
-  python scripts/eval_skyjepa.py --data-dir <data_dir> --models runs/a0_calm_sky_s0 runs/jepa_calm_sky_s0 \
+Writes <model_dir>/eval_skyjepa_<set>.json. Usage:
+  python scripts/eval_skyjepa.py --data-dir data/data_advanced --models runs/a0_adv_s0 runs/jepa_adv_s0 \
       [--noise-kinds gauss bias colored dropout --noise-rho 0.95]
 """
 import argparse
@@ -38,7 +35,6 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wingjepa.data.noise import KINDS, corrupt, draw  # noqa: E402
-from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_STATE, STATE, aircraft_params, features, load_set, split_mask  # noqa: E402
 from wingjepa.eval.io import DT, load_model, predict, starts  # noqa: E402
 
@@ -47,7 +43,8 @@ SIGMAS = [0.0, 0.05, 0.1, 0.2, 0.5]
 
 
 def kinematics(states, psi0, wind_ne):
-    """states (N, L, 9) -> heading (N, L), velocity north-east-up (N, L, 3), as in position_error.integrate."""
+    """states (N, L, 9) -> heading (N, L), velocity north-east-up (N, L, 3): heading integrated from the rates,
+    air velocity rotated to north-east plus the wind wind_ne (N, 2), vertical speed as predicted."""
     g = {k: states[:, :, i] for i, k in enumerate(STATE)}
     sf, cf, st, ct = np.sin(g["phi"]), np.cos(g["phi"]), np.sin(g["theta"]), np.cos(g["theta"])
     psi = psi0[:, None] + np.cumsum((g["q"] * sf + g["r"] * cf) / np.maximum(ct, 0.05), 1) * DT
@@ -111,8 +108,6 @@ def main():
     ap.add_argument("--noise-kinds", nargs="+", default=["gauss"], choices=KINDS,
                     help="noise kinds of the robustness test (gauss is always run)")
     ap.add_argument("--noise-rho", type=float, default=0.95, help="AR(1) coefficient per step of the colored noise")
-    ap.add_argument("--nominal-params", type=int, default=0,
-                    help="1: nominal mass and inertia for every flight instead of the true ones")
     ap.add_argument("--max-rollouts", type=int, default=2000)
     ap.add_argument("--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "4")))
     a = ap.parse_args()
@@ -125,9 +120,7 @@ def main():
 
     data, ch, meta = load_set(a.data_dir, a.set)
     X, alive, _ = features(data, ch)
-    P = aircraft_params(meta, oracle=True)          # columns 5: only read by an oracle physics head
-    if a.nominal_params:
-        P = nominal_params(P)
+    P = aircraft_params(meta)
     raw = {k: data[:, :, ch.index(k)].astype(np.float64)
            for k in ("psi", "north", "east", "h", "wind_n_est", "wind_e_est")}
     if (meta["split"] == "train").any():
@@ -204,7 +197,7 @@ def main():
                   f"  CR {res['compounding_ratio'][kL]:5.2f}  straight {straight.mean():5.2f}"
                   f"  noise0 {robust['gauss']['0']['median']:.3f}  (1 s / {a.horizon_s:g} s)"
                   + "".join(f"  {k}{SIGMAS[-1]:g} {robust[k][f'{SIGMAS[-1]:g}']['median']:.3f}" for k in kinds))
-            out = Path(d) / f"eval_skyjepa_{a.set}{'_nominal' if a.nominal_params else ''}.json"
+            out = Path(d) / f"eval_skyjepa_{a.set}.json"
             prev = json.load(open(out)) if out.exists() else {}
             prev[gname] = res
             json.dump(prev, open(out, "w"), indent=1)

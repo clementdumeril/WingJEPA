@@ -12,8 +12,7 @@ MPPI (model-predictive path integral control), every 50 ms:
   - cost: altitude (integrated predicted climb rate), climb rate towards a target, airspeed, bank, sideslip,
     envelope penalties (angle of attack, speed, attitude) and command rate;
   - new nominal = softmax-weighted mean of the candidates; its first command is applied, the rest shifted.
-The physics head receives the true mass and inertia of the aircraft, as in training and evaluation;
---nominal-params 1 gives every model the nominal ones instead (the aircraft flown keeps its true ones).
+The physics head receives the true mass and inertia of the aircraft, as in training and evaluation.
 
 Sensor noise --noise s: noise of level s on the 9 measured states, for every controller (TECS included), same
 realization for all (fixed seed); altitude itself is measured without noise. --noise-kind (wingjepa/data/noise.py):
@@ -24,9 +23,9 @@ realization for all (fixed seed); altitude itself is measured without noise. --n
 The settings are written in args.sensor_noise of the output.
 
 Usage (cluster, GPU):
-  python scripts/closed_loop.py --controllers tecs runs/c_direct_calm_sky_nul_s0 runs/c_jepa_calm_sky_nul_s0 \
-      runs/a0_calm_sky_s0 --out runs/closed_loop/calm_noise0.json [--noise 0.2] [--turbulence moderate --gust 3] \
-      [--noise-kind colored --noise-rho 0.95]
+  python scripts/closed_loop.py --config configs/data_advanced.yaml --controllers tecs runs/c_direct_adv_s0 \
+      runs/c_jepa_adv_s0 runs/a0_adv_s0 --out runs/closed_loop/adv_noise0.json [--noise 0.2] \
+      [--turbulence moderate --gust 3] [--noise-kind colored --noise-rho 0.95]
 Writes <out>.json (metrics per controller and aircraft group) and <out>_traces.npz (time series).
 """
 import argparse
@@ -43,10 +42,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_flights import make_aircraft  # noqa: E402
 from wingjepa.data.noise import KINDS, SensorNoise  # noqa: E402
-from wingjepa.data.windows import nominal_params  # noqa: E402
 from wingjepa.data.windows import N_CTRL, N_STATE  # noqa: E402
 from wingjepa.eval.io import load_model  # noqa: E402
-from wingjepa.sim import ultrastick as us  # noqa: E402
+from wingjepa.sim import common as sc  # noqa: E402
 from wingjepa.sim.pilot import TECS, lateral  # noqa: E402
 from wingjepa.sim.wind import Wind  # noqa: E402
 
@@ -75,17 +73,14 @@ class Flights:
     def __init__(self, cfg, n_train, n_test, seed, duration, turbulence, gust, noise, std_state,
                  noise_kind="gauss", noise_rho=0.95):
         self.cfg, sim = cfg, cfg["sim"]
-        p = us.load_config(cfg["aircraft"]["config"])
+        p = sc.load_config(cfg["aircraft"]["config"])
         self.p, self.lim = p, sim["limits"]
         rng = np.random.default_rng(seed)
         n = n_train + n_test
         self.n, self.is_test = n, np.r_[np.zeros(n_train, bool), np.ones(n_test, bool)]
-        self.ac, ov = make_aircraft(rng, n, p, cfg["aircraft"].get("ranges"), self.is_test)   # UltraStick or AdvancedPlane
+        self.ac, ov = make_aircraft(rng, n, p, cfg["aircraft"].get("ranges"), self.is_test)   # AdvancedPlane or UltraStick
+        # same columns as windows.aircraft_params(meta): mass and inertias
         self.params = np.stack([ov["mass"], ov["Ixx"], ov["Iyy"], ov["Izz"], ov["Ixz"]], 1).astype(np.float32)
-        # same columns as windows.aircraft_params(meta, oracle=True); 5: only read by an oracle physics head
-        extra = [ov["power_scale"], ov["cg_shift"]] + [ov["aero_scale"][k] for k in ("CD", "CY", "CL", "Cl", "Cm", "Cn")]
-        extra = [(e - 1) / 0.3 for e in extra[:1]] + [extra[1] / 0.05] + [(e - 1) / 0.3 for e in extra[2:]]
-        self.params = np.c_[self.params, np.stack(extra, 1)].astype(np.float32)
         # flight envelope of the test (optional closed_loop section of the data config; defaults: Ultra Stick)
         V_range = tuple(cfg.get("closed_loop", {}).get("V_range", (17, 25)))
         self.h0, self.V0 = rng.uniform(150, 300, n), rng.uniform(*V_range, n)
@@ -104,11 +99,11 @@ class Flights:
         self.turb = np.zeros((n, 3))
         self.wind_est = self.wind.steady.copy()
         self.t = 0.0
-        self.h_prev = self.Y[:, us.H].copy()
+        self.h_prev = self.Y[:, sc.H].copy()
         self.thr = self.thr0.copy()
 
     def gust_body(self, Y, t):
-        Cbn = np.swapaxes(us.dcm_body_to_ned(Y[:, us.PHI], Y[:, us.TH], Y[:, us.PSI]), 1, 2)
+        Cbn = np.swapaxes(sc.dcm_body_to_ned(Y[:, sc.PHI], Y[:, sc.TH], Y[:, sc.PSI]), 1, 2)
         gn = self.wind.gust(t)
         return np.einsum("nij,nj->ni", Cbn, gn) + self.turb, gn
 
@@ -116,11 +111,11 @@ class Flights:
         """True and measured (noisy) state features (n, 9), wind features (n, 3), altitude (n,)."""
         gb, _ = self.gust_body(self.Y, self.t)
         F = self.ac.forces(self.Y, self.thr, gb)
-        Y, h = self.Y, self.Y[:, us.H]
+        Y, h = self.Y, self.Y[:, sc.H]
         hdot = (h - self.h_prev) / DT
-        s = np.stack([F["Va"], F["alpha"], F["beta"], Y[:, us.P], Y[:, us.Q], Y[:, us.R],
-                      Y[:, us.PHI], Y[:, us.TH], hdot], 1)
-        psi = Y[:, us.PSI]
+        s = np.stack([F["Va"], F["alpha"], F["beta"], Y[:, sc.P], Y[:, sc.Q], Y[:, sc.R],
+                      Y[:, sc.PHI], Y[:, sc.TH], hdot], 1)
+        psi = Y[:, sc.PSI]
         we = self.wind_est
         w = np.stack([we[:, 0] * np.cos(psi) + we[:, 1] * np.sin(psi),
                       -we[:, 0] * np.sin(psi) + we[:, 1] * np.cos(psi), we[:, 2]], 1)
@@ -132,24 +127,24 @@ class Flights:
         lim = self.lim
         cmd = np.clip(cmd, self.p["act_min"], self.p["act_max"])
         thr = np.clip(thr, 0.0, 1.0)
-        self.h_prev = self.Y[:, us.H].copy()
+        self.h_prev = self.Y[:, sc.H].copy()
         self.thr = thr
         for _ in range(self.sub):
             self.turb = self.wind.step_turbulence(
-                self.ac.forces(self.Y, thr, self.gust_body(self.Y, self.t)[0])["Va"], self.Y[:, us.H], self.dt_sim)
+                self.ac.forces(self.Y, thr, self.gust_body(self.Y, self.t)[0])["Va"], self.Y[:, sc.H], self.dt_sim)
             gb, gn = self.gust_body(self.Y, self.t)
             self.wind_est = self.wind.step_estimate(self.wind.steady + gn, self.dt_sim)
             Yn = self.ac.step(self.Y, cmd, thr, gb, self.wind.steady, self.dt_sim)
             with np.errstate(all="ignore"):
-                vr = Yn[:, us.U:us.W + 1] - gb
+                vr = Yn[:, sc.U:sc.W + 1] - gb
                 Va = np.linalg.norm(vr, axis=1)
                 a = np.arctan2(vr[:, 2], vr[:, 0])
                 b = np.arcsin(np.clip(vr[:, 1] / np.maximum(Va, 1e-3), -1, 1))
                 bad = (~np.isfinite(Yn).all(1) | (Va < lim["Va_min"]) | (Va > lim["Va_max"])
                        | (a > np.deg2rad(lim["alpha_max_deg"])) | (a < np.deg2rad(lim["alpha_min_deg"]))
                        | (np.abs(b) > np.deg2rad(lim["beta_max_deg"]))
-                       | (np.abs(Yn[:, us.PHI]) > np.deg2rad(lim["phi_max_deg"]))
-                       | (np.abs(Yn[:, us.TH]) > np.deg2rad(lim["theta_max_deg"])) | (Yn[:, us.H] < lim["h_min"]))
+                       | (np.abs(Yn[:, sc.PHI]) > np.deg2rad(lim["phi_max_deg"]))
+                       | (np.abs(Yn[:, sc.TH]) > np.deg2rad(lim["theta_max_deg"])) | (Yn[:, sc.H] < lim["h_min"]))
             self.alive &= ~bad
             self.Y = np.where(self.alive[:, None], Yn, self.Y)
             self.t += self.dt_sim
@@ -162,7 +157,7 @@ class TecsController:
     def __init__(self, fl, cfg):
         pil = cfg["pilot"]
         self.k_lat, self.g = pil["lateral"]["gains"], fl.p["g"]
-        self.tecs = TECS(fl.n, pil["tecs"], thr_ff=fl.thr0, theta_ff=fl.Y[:, us.TH], de_ff=fl.cmd0[:, 0], g=self.g)
+        self.tecs = TECS(fl.n, pil["tecs"], thr_ff=fl.thr0, theta_ff=fl.Y[:, sc.TH], de_ff=fl.cmd0[:, 0], g=self.g)
         self.cmd0 = fl.cmd0
         self.alpha_f = None
 
@@ -200,8 +195,7 @@ class MPPIController:
         self.rho, self.lam, self.w_du = a.smooth, a.lam, a.w_du
         cl = fl.cfg.get("closed_loop", {})                # envelope penalties (defaults: Ultra Stick)
         self.alpha_max, self.V_min = float(cl.get("alpha_max", 0.19)), float(cl.get("V_min", 14.0))
-        P = nominal_params(fl.params) if a.nominal_params else fl.params
-        self.ac = torch.from_numpy(P).to(dev).repeat_interleave(self.N, 0)
+        self.ac = torch.from_numpy(fl.params).to(dev).repeat_interleave(self.N, 0)
         self.gen = torch.Generator(device=dev).manual_seed(a.seed + 3)
         u0 = np.c_[fl.cmd0, fl.thr0].astype(np.float32)
         self.U = torch.from_numpy(u0).to(dev)[:, None].repeat(1, self.T, 1)        # nominal (n, T, 4)
@@ -313,7 +307,7 @@ def metrics(fl, tr, alive_t):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--controllers", nargs="+", required=True, help="'tecs' and/or run directories")
-    ap.add_argument("--config", default="configs/data_calm.yaml")
+    ap.add_argument("--config", default="configs/data_advanced.yaml")
     ap.add_argument("--out", required=True)
     ap.add_argument("--n-train", type=int, default=20, help="aircraft from the training ranges")
     ap.add_argument("--n-test", type=int, default=20, help="extreme aircraft")
@@ -323,8 +317,6 @@ def main():
     ap.add_argument("--gust", type=float, default=0.0, help="max gust amplitude per axis (m/s)")
     ap.add_argument("--noise", type=float, default=0.0,
                     help="sensor noise level, in std of each state (dropout: probability of a lost measurement)")
-    ap.add_argument("--nominal-params", type=int, default=0,
-                    help="1: the models get the nominal mass and inertia, not the true ones of each aircraft")
     ap.add_argument("--noise-kind", default="gauss", choices=KINDS, help="sensor noise model (wingjepa/data/noise.py)")
     ap.add_argument("--noise-rho", type=float, default=0.95, help="AR(1) coefficient per step of the colored noise")
     ap.add_argument("--horizon", type=int, default=30, help="MPPI horizon (steps of 50 ms)")

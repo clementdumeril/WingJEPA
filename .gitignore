@@ -15,7 +15,7 @@ __pycache__/
 slurm-*.out
 *.out
 
-# third-party data (NASA tables of the UMN simulator), fetched by scripts/fetch_umn.sh
+# third-party data (NASA tables of the UMN simulator), fetched by archive/ultrastick/scripts/fetch_umn.sh
 third_party/
 
 # working notes (kept locally)

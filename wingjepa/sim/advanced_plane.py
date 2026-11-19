@@ -56,8 +56,8 @@ Modelling decisions (validated with the project, 2026-11-17):
 """
 import numpy as np
 
-from wingjepa.sim.ultrastick import (DA, DE, DR, H, N_STATE, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: F401
-                                     dcm_body_to_ned, isa_density, load_config)
+from wingjepa.sim.common import (DA, DE, DR, H, N_STATE, OM, P, PHI, PSI, Q, R, TH, U, V, W, XN, YE,  # noqa: F401
+                                 dcm_body_to_ned, isa_density, load_config)
 
 D2R, R2D = np.pi / 180, 180 / np.pi
 COEFS = ("CD", "CY", "CL", "Cl", "Cm", "Cn")          # order of forces()["C"] and of the control matrix rows

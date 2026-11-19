@@ -17,7 +17,7 @@ g: 9.8                         # m/s2, Gazebo's default world (not 9.80665)
 
 # --- air -----------------------------------------------------------------------------------------------------------
 rho: 1.2041                    # kg/m3, advanced::density: Gazebo's constant air density (no altitude dependence)
-density_model: constant        # constant (as Gazebo) | isa (1976 troposphere, ultrastick.isa_density(h))
+density_model: constant        # constant (as Gazebo) | isa (1976 troposphere, common.isa_density(h))
 
 # --- geometry (advanced::area, mac, AR) ----------------------------------------------------------------------------
 S: 0.34                        # m2, wing area

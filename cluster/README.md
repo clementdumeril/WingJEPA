@@ -53,23 +53,22 @@ bash cluster/setup_env.sh                  # creates the Python environment in s
 Never run computations on the login node; always go through Slurm.
 
 ```bash
-sbatch cluster/job_cpu.sbatch scripts/phase0_jsbsim_checks.py     # a test CPU job
-sbatch --array=0-134 cluster/job_array.sbatch configs/sweep.yaml  # the experiment grid (phase 3)
-squeue -u $USER                                                    # check your jobs
+sbatch cluster/smoke_advanced.sbatch                                          # quick check of every recipe (debug queue)
+sbatch --array=0-19 cluster/gen_data.sbatch configs/data_advanced.yaml train 20   # one data shard per task
+sbatch cluster/train_a.sbatch a0 0 adv <train_a.py options>                   # one training run, then its evaluation
+sbatch cluster/job_cpu.sbatch scripts/check_dataset.py --dir data/data_advanced --set train --g 9.8   # any script
+squeue -u $USER                                                               # check your jobs
 ```
 
-The workload (JSBSim, models of ~100 k parameters) is mostly CPU, so the HTC partitions (`savio3_htc`, `savio4_htc`)
-fit.
+Data generation is CPU work (one shard per array task on the HTC partitions `savio3_htc`, `savio4_htc`); the models
+are small (about 11k parameters) and train on one GPU.
 
 A training job stopped by the time limit can be resubmitted with the same command: it continues from
-`runs/<run>/resume.pt`, saved every 15 minutes (`cluster/smoke_resume.sbatch` checks that a resumed run matches a run
-done in one go).
+`runs/<run>/resume.pt`, saved every 15 minutes.
 
-To compare CPU and GPU (JEPA spends most of its time encoding the target windows, a large batched convolution):
-```bash
-bash cluster/setup_gpu_env.sh            # once, on the login node: environment with a CUDA build of torch
-sbatch cluster/bench_device.sbatch       # same outputs on GPU and CPU, then seconds per step for each model
-```
+For the GPU runs (`train_a.py --device cuda`), create once, on the login node, an environment with a CUDA build of
+torch: `bash cluster/setup_gpu_env.sh`. The scripts of the archived Ultra Stick study (benchmarks, resume check,
+smoke tests) are in `archive/ultrastick/cluster/` and run from the tag `ultrastick-final`.
 
 ## 5. Getting results back
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Flight generation: one shard per array task.
-# Usage: sbatch --array=0-19 cluster/gen_data.sbatch configs/data_v1.yaml train 20
-#         sbatch --array=0-3  cluster/gen_data.sbatch configs/data_v1.yaml test_long 4
+# Usage: sbatch --array=0-19 cluster/gen_data.sbatch configs/data_advanced.yaml train 20
+#         sbatch --array=0-3  cluster/gen_data.sbatch configs/data_advanced.yaml test_long 4
 # Then the check: sbatch cluster/job_cpu.sbatch scripts/check_dataset.py --dir <out_dir>/<name> --set train
 #SBATCH --job-name=wingjepa-gen
 #SBATCH --account=ic_piml

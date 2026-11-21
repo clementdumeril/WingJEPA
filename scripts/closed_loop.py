@@ -21,6 +21,10 @@ realization for all (fixed seed); altitude itself is measured without noise. --n
   colored: AR(1) per state, marginal std s * std, coefficient --noise-rho per 50 ms step;
   dropout: s = probability that a measurement is lost (per step and state), the last received value is held.
 The settings are written in args.sensor_noise of the output.
+--noise-std-from RUN: the noise levels are in units of that run's training std (default: the first controller's),
+so that runs trained on different datasets are flown under the same physical noise.
+--params-from FILE: MPPI settings (lam, sigma, smooth, w_du) read from a JSON file written by scripts/pick_mppi.py,
+overriding the command line (tune once, then freeze them for every model).
 
 Usage (cluster, GPU):
   python scripts/closed_loop.py --config configs/data_advanced.yaml --controllers tecs runs/c_direct_adv_s0 \
@@ -326,9 +330,17 @@ def main():
     ap.add_argument("--smooth", type=float, default=0.8, help="AR(1) correlation of the noise between steps")
     ap.add_argument("--lam", type=float, default=0.1, help="temperature, relative to median - min cost")
     ap.add_argument("--w-du", type=float, default=0.05, help="weight of the command-rate cost")
+    ap.add_argument("--noise-std-from", default=None, help="run whose training std sets the noise unit")
+    ap.add_argument("--params-from", default=None, help="JSON of MPPI settings (scripts/pick_mppi.py)")
     ap.add_argument("--compile", type=int, default=1)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
+    if a.params_from:
+        for k, v in json.load(open(a.params_from)).items():
+            if k in ("lam", "sigma", "smooth", "w_du"):
+                setattr(a, k, v)
+        print(f"MPPI settings from {a.params_from}: lam {a.lam} sigma {a.sigma} smooth {a.smooth} w_du {a.w_du}",
+              flush=True)
     cfg = yaml.safe_load(open(a.config, encoding="utf-8"))
     dev = torch.device(a.device)
     torch.set_grad_enabled(False)
@@ -336,6 +348,8 @@ def main():
     runs = [c for c in a.controllers if c != "tecs"]
     cfgs = [json.load(open(Path(r) / "config.json")) for r in runs]
     std_state = np.asarray(cfgs[0]["norm"]["std"][:N_STATE]) if cfgs else np.ones(N_STATE)
+    if a.noise_std_from:
+        std_state = np.asarray(json.load(open(Path(a.noise_std_from) / "config.json"))["norm"]["std"][:N_STATE])
     H_hist = max([c["H"] for c in cfgs] + [1])
 
     results, traces = dict(args=vars(a)), {}

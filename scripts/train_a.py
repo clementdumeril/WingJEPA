@@ -18,6 +18,15 @@ head (model C) and the plain MLP baseline.
                    in [0, S] for each window, added to the past states (the H context steps) of every training
                    batch; the future states (targets) and the validation batches stay clean. Same noise model
                    as the robustness tests, so S = 0.5 covers all the tested levels.
+--obs realistic: partially observed, noisy context (wingjepa/data/sensors.py): alpha and beta not measured, white
+                   noise + offset per window of a small autopilot's sensors on the other past states; targets and
+                   validation truth stay clean (validation context observed once, fixed draw). All modes.
+--target-priv 1 (jepa): asymmetric JEPA, in the spirit of asymmetric actor-critic / RMA: the targets are encoded by
+                   a separate target encoder that reads the clean future windows and every per-flight simulator
+                   parameter (windows.privileged_params), with SIGReg on its latents too; the encoder (context)
+                   reads what the aircraft measures. Only the encoder, predictor and decoder are used in flight.
+--train-frac f:    keep a fixed random fraction f of the training and validation flights (nested: the flights of
+                   f = 0.01 are among those of f = 0.1), for the data-efficiency curves.
 --action-encoder 1: as in SkyJEPA (eq. 7-8), the predictor receives at each step the encoding of the
                    commands applied up to that step (TCN of --act-channels) instead of the raw command; the
                    state latent and the JEPA targets stay states only. A c_jepa run takes this from its trunk.
@@ -53,8 +62,9 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wingjepa.data.sensors import OBS_KINDS, observe_torch  # noqa: E402
 from wingjepa.data.windows import (FEATURES, N_CTRL, N_STATE, Normalizer, WindowSampler, aircraft_params,  # noqa: E402
-                                   features, load_set, split_mask)
+                                   features, load_set, privileged_params, split_mask)
 from wingjepa.models.jepa import model_from_config, sigreg  # noqa: E402
 
 MODES = ["jepa", "a0", "c_direct", "c_jepa", "mlp_direct"]
@@ -193,6 +203,13 @@ def build_parser():
                          "predicted states (attitude kinematics, vertical speed), like Pred + Phys Reg in SkyJEPA")
     ap.add_argument("--input-noise", type=float, default=0.0,
                     help="noise augmentation: max std (normalized units) of the noise added to the past states")
+    ap.add_argument("--obs", choices=OBS_KINDS, default="none",
+                    help="realistic: alpha, beta unmeasured and sensor noise on the past states (sensors.py)")
+    ap.add_argument("--target-priv", type=int, default=0,
+                    help="1 (jepa mode): asymmetric JEPA, privileged target encoder (clean states + simulator "
+                         "parameters)")
+    ap.add_argument("--train-frac", type=float, default=1.0,
+                    help="fraction of the training and validation flights kept (nested subsets, fixed draw)")
     ap.add_argument("--out-scale", type=float, default=0.1, help="scale of the correction (coefficients)")
     ap.add_argument("--max-skip-streak", type=int, default=500,
                     help="stop when this many batches in a row have a non-finite loss or gradient")
@@ -228,6 +245,8 @@ def resolve(ap, a):
     the architecture of the trunk. Returns the trunk config (None outside c_jepa)."""
     physics = a.mode in ("c_direct", "c_jepa")
     a.head = "physics" if physics else "mlp"
+    if a.target_priv and a.mode != "jepa":
+        ap.error("--target-priv applies to the jepa mode only")
     if physics and not a.prior:
         ap.error("--prior is required for the c_direct and c_jepa modes")
     a.prior_file, a.prior = a.prior, (json.load(open(a.prior)) if physics else None)
@@ -262,6 +281,17 @@ def main(argv=None):
     X, alive, _ = features(data, ch)
     P = aircraft_params(meta)
     tr, va = split_mask(meta, "train", a.seed), split_mask(meta, "val", a.seed)
+    if a.train_frac < 1:                  # nested subsets: one fixed permutation, its first flights kept
+        rs = np.random.default_rng(12345)
+        for m in (tr, va):
+            idx = rs.permutation(np.flatnonzero(m))
+            m[idx[max(20, int(round(a.train_frac * len(idx)))):]] = False
+    priv_mean = priv_std = None
+    if a.target_priv:                     # privileged parameters appended after the 5 aircraft columns
+        Pp, a.priv_names = privileged_params(meta)
+        a.n_priv = Pp.shape[1]
+        priv_mean, priv_std = Pp[tr].mean(0), np.maximum(Pp[tr].std(0), 1e-6)
+        P = np.concatenate([P, Pp], 1)
     norm = Normalizer.from_dict(trunk_cfg["norm"]) if trunk_cfg else Normalizer.fit(X[tr], alive[tr])
     Xn = norm(X)
     T_max = a.T_max or a.T
@@ -270,6 +300,19 @@ def main(argv=None):
     vrows = S_va.fixed_rows(a.val_windows)
     val_seq = torch.from_numpy(S_va.gather(vrows)).to(dev)
     val_ac = torch.from_numpy(S_va.aircraft(vrows)).to(dev)
+    std_s = torch.as_tensor(norm.std[:N_STATE], device=dev)
+    val_clean = val_seq
+    if a.obs != "none":                   # validation context observed once (fixed draw), truth kept clean
+        g_state = torch.get_rng_state()
+        torch.manual_seed(10_000 + a.seed)
+        val_seq = val_seq.clone()
+        val_seq[:, :a.H, :N_STATE] = observe_torch(val_seq[:, :a.H, :N_STATE].cpu(), std_s.cpu()).to(dev)
+        torch.set_rng_state(g_state)
+    if a.target_priv:
+        pm, ps = (torch.as_tensor(v, device=dev) for v in (priv_mean, priv_std))
+        privn = lambda ac: (ac[:, 5:] - pm) / ps
+    else:
+        privn = lambda ac: None
     print(f"flights: {tr.sum()} training, {va.sum()} validation; windows: {len(S_tr)} / {len(S_va)}; "
           f"device {dev}", flush=True)
 
@@ -301,10 +344,13 @@ def main(argv=None):
         rows = S_tr.sample_rows(a.batch)
         seq = torch.from_numpy(S_tr.gather(rows)[:, :H + T]).to(dev)
         clean = seq
-        if a.input_noise > 0:                     # noise augmentation of the past states only
+        if a.input_noise > 0 or a.obs != "none":
             clean = seq.clone()
+        if a.input_noise > 0:                     # noise augmentation of the past states only
             sig = a.input_noise * torch.rand(seq.shape[0], 1, 1, device=dev)      # level drawn per window
             seq[:, :H, :N_STATE] += sig * torch.randn_like(seq[:, :H, :N_STATE])
+        if a.obs != "none":                       # what the aircraft measures, past only
+            seq[:, :H, :N_STATE] = observe_torch(seq[:, :H, :N_STATE], std_s)
         ac = torch.from_numpy(S_tr.aircraft(rows)).to(dev)
         return (seq, ac, clean) if keep_clean else (seq, ac)
 
@@ -356,6 +402,7 @@ def main(argv=None):
     # resume.pt existed are left out at their default, so that the runs started before can still resume
     machine = ("threads", "device", "compile", "checkpoint_min", "max_skip_streak")
     later = dict(param_bound=0.0, action_history=0, target_window=0, action_encoder=0, act_channels="4,4,8",
+                 obs="none", target_priv=0, train_frac=1.0,
                  lambda_phys=0.0, input_noise=0.0, oracle_params=0, head_kind="physics", mlp_hidden="50,50",
                  context_dim=0, context_channels="8,8,16", id_jepa=0.0, id_gap_s=2.0)
     key = json.dumps({k: v for k, v in vars(a).items() if k not in machine and later.get(k, object()) != v},
@@ -365,15 +412,19 @@ def main(argv=None):
     def jepa_loss(seq, ac, clean=None):
         """clean: windows without the noise augmentation, encoded as targets (default seq itself)."""
         z0, zp, U = model.latents(seq, H, True, ac)
-        zt = model.target_latents(seq if clean is None else clean, H, ac)
+        zt = model.target_latents(seq if clean is None else clean, H, ac, privn(ac))
         pred = ((zp - zt) ** 2).mean()
         # SIGReg on the predicted latents, averaged over time: estimated on a few randomly drawn steps
         ks = torch.randperm(zp.shape[1])[:a.sigreg_steps]
         reg = torch.stack([sigreg(zp[:, k], n_proj=a.sigreg_proj) for k in ks]).mean()
+        if a.target_priv:                 # separate target encoder: keep its latents from collapsing too
+            reg = 0.5 * (reg + torch.stack([sigreg(zt[:, k], n_proj=a.sigreg_proj) for k in ks]).mean())
         return pred + a.lambda_sig * reg, (z0, zp, U), dict(pred=pred.item(), sigreg=reg.item())
 
     trunk_params = (list(model.encoder.parameters()) + list(model.predictor.parameters())
                     if getattr(model, "latent", True) else [])
+    if getattr(model, "target_encoder", None) is not None:
+        trunk_params += list(model.target_encoder.parameters())
     if a.mode == "jepa":
         def loss1(step):
             T = T_at(step, a.steps1)
@@ -384,7 +435,7 @@ def main(argv=None):
             # prediction error normalized by the spread of the target latents: independent of the
             # batch size, and penalizes collapse (if all the z look alike, it blows up)
             zp = model.predict_latents(val_seq, H, True, val_ac)
-            zt = model.target_latents(val_seq, H, val_ac)
+            zt = model.target_latents(val_clean, H, val_ac, privn(val_ac))
             return ((zp - zt) ** 2).mean() / zt.reshape(-1, zt.shape[-1]).var(0).mean()
 
         resumed_in_stage2 = resume.finished("jepa") is not None       # the weights are already those of stage 2

@@ -60,6 +60,15 @@ def aircraft_params(meta):
     return np.stack([meta[k] for k in AIRCRAFT], 1).astype(np.float32)
 
 
+def privileged_params(meta):
+    """(n, P) float32 and names: every per-flight simulator parameter (mass and inertias, then the randomization
+    factors: motor, CG, servo time constant, aerodynamic groups), for the privileged target encoder of the
+    asymmetric JEPA (train_a.py --target-priv 1). Training only, never a model input in use."""
+    names = list(AIRCRAFT) + [k for k in ("power_scale", "cg_shift", "servo_tau") if k in meta]
+    names += sorted(k for k in meta if k.startswith("aero_scale_"))
+    return np.stack([np.asarray(meta[k], np.float64) for k in names], 1).astype(np.float32), names
+
+
 def true_wind_features(data, ch):
     """True wind (mean + gusts, without turbulence) in the heading frame, (n, K, 3): used for the
     "known wind" evaluation, to separate the model error from what is unpredictable."""

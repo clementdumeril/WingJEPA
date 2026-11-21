@@ -121,12 +121,15 @@ NOMINAL_AIRCRAFT = (6.804, 0.672485702, 0.889416574, 1.57817209, -0.759258051)
 
 class WorldModel(nn.Module):
     """head = "mlp" (black-box decoder) or "physics" (physics head, prior and norm required).
-    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi)."""
+    act_channels: the predictor receives the commands through an action encoder (SkyJEPA's Enc_phi).
+    n_priv > 0: asymmetric JEPA, a separate target encoder reads the clean future windows and n_priv privileged
+    simulator parameters (training only: in use, only the encoder, the predictor and the head run)."""
 
     def __init__(self, z_dim=32, tcn_channels=(16, 16, 32), k=3, dilations=(1, 2, 4), dec_hidden=64,
-                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, act_channels=None):
+                 n_ctx=0, head="mlp", prior=None, norm=None, out_scale=0.1, n_sub=1, act_channels=None, n_priv=0):
         super().__init__()
         self.encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_ctx)
+        self.target_encoder = TCNEncoder(N_STATE, tcn_channels, k, dilations, z_dim, n_priv) if n_priv else None
         self.predictor = GRUPredictor(N_CTRL + N_WIND, z_dim, act_channels, k, dilations)
         self.n_ctx, self.head = n_ctx, head
         self.register_buffer("ac_nominal", torch.tensor(NOMINAL_AIRCRAFT), persistent=False)
@@ -181,17 +184,21 @@ class WorldModel(nn.Module):
         z0, zs, U = self.latents(seq, H, hold_wind, ac)
         return self.head_states(z0, zs, U, seq, H, ac)
 
-    def target_latents(self, seq, H, ac=None):
-        """Encoder applied to the true state windows of H steps ending at t+1..t+T -> (B, T, D)."""
+    def target_latents(self, seq, H, ac=None, priv=None):
+        """Encoder applied to the true state windows of H steps ending at t+1..t+T -> (B, T, D).
+        Asymmetric JEPA (target_encoder): the target encoder instead, with the normalized privileged parameters
+        priv (B, n_priv) as its context."""
         win = seq[:, 1:, :N_STATE].unfold(1, H, 1)                    # (B, T, 9, H), ending at t+1..t+T
         B, T = win.shape[:2]
-        c = self.ctx(ac)
+        enc, c = (self.encoder, self.ctx(ac)) if self.target_encoder is None else (self.target_encoder, priv)
         c = None if c is None else c.repeat_interleave(T, 0)
-        z = self.encoder(win.reshape(B * T, N_STATE, H).transpose(1, 2), c)
+        z = enc(win.reshape(B * T, N_STATE, H).transpose(1, 2), c)
         return z.reshape(B, T, -1)
 
     def n_params(self):
         parts = [("encodeur", self.encoder), ("predicteur", self.predictor), ("decodeur", self.decoder)]
+        if self.target_encoder is not None:                          # training only, not part of the flown model
+            parts.append(("encodeur_cible", self.target_encoder))
         return {k: sum(p.numel() for p in m.parameters()) for k, m in parts}
 
 
@@ -220,4 +227,5 @@ def model_from_config(cfg, prior=None):
                       n_ctx=5 if cfg.get("aircraft_input") else 0, head=cfg.get("head", "mlp"),
                       prior=prior or cfg.get("prior"), norm=Normalizer.from_dict(cfg["norm"]),
                       out_scale=cfg.get("out_scale", 0.1), n_sub=cfg.get("n_sub", 1),
-                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None)
+                      act_channels=ints(cfg.get("act_channels"), None) if cfg.get("action_encoder") else None,
+                      n_priv=int(cfg.get("n_priv") or 0) if cfg.get("target_priv") else 0)

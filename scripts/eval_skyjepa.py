@@ -20,7 +20,7 @@ For each model and each aircraft group of the set:
 Kinematics: heading integrated from the predicted rates, air velocity rotated to north-east-up plus the last wind
 estimate held; truth from the simulator (north, east, altitude, heading).
 
-Writes <model_dir>/eval_skyjepa_<set>.json. Usage:
+Writes <model_dir>/eval_skyjepa_<set><tag>.json (--tag, empty by default). Usage:
   python scripts/eval_skyjepa.py --data-dir data/data_advanced --models runs/a0_adv_s0 runs/jepa_adv_s0 \
       [--noise-kinds gauss bias colored dropout --noise-rho 0.95]
 """
@@ -109,6 +109,8 @@ def main():
                     help="noise kinds of the robustness test (gauss is always run)")
     ap.add_argument("--noise-rho", type=float, default=0.95, help="AR(1) coefficient per step of the colored noise")
     ap.add_argument("--max-rollouts", type=int, default=2000)
+    ap.add_argument("--tag", default="", help="suffix of the output file, e.g. _on_advanced to evaluate a model on "
+                    "another dataset without overwriting its own eval_skyjepa_<set>.json")
     ap.add_argument("--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "4")))
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -197,7 +199,7 @@ def main():
                   f"  CR {res['compounding_ratio'][kL]:5.2f}  straight {straight.mean():5.2f}"
                   f"  noise0 {robust['gauss']['0']['median']:.3f}  (1 s / {a.horizon_s:g} s)"
                   + "".join(f"  {k}{SIGMAS[-1]:g} {robust[k][f'{SIGMAS[-1]:g}']['median']:.3f}" for k in kinds))
-            out = Path(d) / f"eval_skyjepa_{a.set}.json"
+            out = Path(d) / f"eval_skyjepa_{a.set}{a.tag}.json"
             prev = json.load(open(out)) if out.exists() else {}
             prev[gname] = res
             json.dump(prev, open(out, "w"), indent=1)

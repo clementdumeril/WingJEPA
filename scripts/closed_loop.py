@@ -259,13 +259,15 @@ def run(name, a, cfg, std_state, H_hist, dev):
     n, K = fl.n, fl.K
     hist = np.zeros((n, H_hist, 16))
     u_prev = np.c_[fl.cmd0, fl.thr0]
-    keys = ["h", "h_ref", "Va", "V_ref", "phi", "phi_ref", "alpha", "beta", "de", "da", "dr", "thr"]
+    keys = ["h", "h_ref", "Va", "V_ref", "phi", "phi_ref", "alpha", "beta", "de", "da", "dr", "thr",
+            "north", "east", "theta", "psi"]
     tr = {k: np.full((n, K), np.nan, np.float32) for k in keys}
     alive_t = np.zeros((n, K), bool)
     t0 = time.time()
     for kk in range(fl.warm + K):
         k = kk - fl.warm
         s, s_meas, w, h = fl.measure()
+        pose = fl.Y[:, [sc.XN, sc.YE, sc.TH, sc.PSI]].copy()             # for the flight animations
         hist = np.roll(hist, -1, 1)
         hist[:, -1, :N_STATE], hist[:, -1, N_STATE + N_CTRL:] = s_meas, w
         hist[:, -1, N_STATE:N_STATE + N_CTRL] = u_prev                       # placeholder until chosen
@@ -283,7 +285,8 @@ def run(name, a, cfg, std_state, H_hist, dev):
         hist[:, -1, N_STATE:N_STATE + N_CTRL] = u_prev
         if k >= 0:
             vals = dict(h=h, h_ref=refs[0], Va=s[:, 0], V_ref=refs[1], phi=s[:, 6], phi_ref=refs[2], alpha=s[:, 1],
-                        beta=s[:, 2], de=cmd[:, 0], da=cmd[:, 1], dr=cmd[:, 2], thr=thr)
+                        beta=s[:, 2], de=cmd[:, 0], da=cmd[:, 1], dr=cmd[:, 2], thr=thr,
+                        north=pose[:, 0], east=pose[:, 1], theta=pose[:, 2], psi=pose[:, 3])
             for key in keys:
                 tr[key][:, k] = vals[key]
             alive_t[:, k] = fl.alive

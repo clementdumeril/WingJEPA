@@ -1,8 +1,8 @@
 # Archived: the Ultra Stick 120 study
 
 The first study of WingJEPA (October to mid-November 2026) flew a simulated Ultra Stick 120, a Python port of the
-University of Minnesota 6-DoF model with the NASA wind-tunnel tables. Its results are the
-[poster](../../poster/poster.pdf), [docs/RESULTS.md](../../docs/RESULTS.md) and the run files in
+University of Minnesota 6-DoF model with the NASA wind-tunnel tables. Its results are
+[docs/RESULTS.md](../../docs/RESULTS.md) and the run files in
 [results/](../../results/README.md). The main code has since moved to PX4's `advanced_plane`; this folder keeps what
 only served the Ultra Stick.
 
@@ -20,9 +20,9 @@ only served the Ultra Stick.
 | `cluster/` | the Slurm scripts of the Ultra Stick runs, benchmarks and smoke tests |
 | `tests/test_ultrastick.py` | physics head against the Ultra Stick equations of motion, trim and RK4 step with the NASA tables |
 
-## Reproducing the poster
+## Reproducing the results
 
-The tag `ultrastick-final` (commit `1ac620a`) is the code as it was when the poster and `docs/RESULTS.md` were made,
+The tag `ultrastick-final` (commit `1ac620a`) is the code as it was when `docs/RESULTS.md` was made,
 with every option those runs used. Some of them were removed from the main code: the constrained and port-Hamiltonian
 physics heads, the oracle and nominal aircraft parameters, the command-history encoders, the JEPA target window, the
 EMA target encoder, the context latent and the identification JEPA, the `joint` and `jepa_ft` modes and the residual

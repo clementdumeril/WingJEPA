@@ -13,8 +13,7 @@ The project now runs the test suite of SkyJEPA (Rao et al., arXiv 2606.23444) on
 fixed-wing model of the PX4 Gazebo simulation: the recipes of their Table III, the same metrics, and a closed-loop
 test. The runs are in progress on Savio.
 
-[Ultra Stick study (archived)](archive/ultrastick/README.txt) · [Poster (PDF)](poster/poster.pdf) ·
-[Implementation](docs/IMPLEMENTATION.md) · Related: [Fixed-Wing](https://github.com/clementdumeril/Fixed-Wing),
+[Ultra Stick study (archived)](archive/ultrastick/README.txt) · [Implementation](docs/IMPLEMENTATION.md) · Related: [Fixed-Wing](https://github.com/clementdumeril/Fixed-Wing),
 [GeneticWing](https://github.com/clementdumeril/GeneticWing)
 
 ## How it works
@@ -71,8 +70,8 @@ to the same format.
 The first study flew a simulated Ultra Stick 120 (a port of the University of Minnesota 6-DoF model with NASA
 wind-tunnel tables). There, the physics head trained end to end predicted 5 s of flight within 5.8 m of position
 error, against 8.1 m for SkyJEPA's frozen physics probe and 14.3 m for the same network without physics.
-[Poster](poster/poster.pdf), [results](docs/RESULTS.md), [code and how to rerun it](archive/ultrastick/README.txt)
-(the tag `ultrastick-final` reproduces the poster).
+[Results](docs/RESULTS.md), [code and how to rerun it](archive/ultrastick/README.txt) (the tag `ultrastick-final`
+reproduces them).
 
 ## Limitations
 

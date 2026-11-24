@@ -77,8 +77,6 @@ def plot(csv_path, out):
         ax.grid(axis="y", color=grid, lw=0.8, zorder=0)
         ax.set_title(title, loc="left", color=ink, fontsize=10.5)
     axes[0].legend(frameon=False, fontsize=8.5, loc="center right")
-    fig.text(0.995, 0.005, "test aircraft, mean of 3 seeds, band = 1 std", ha="right", va="bottom", fontsize=7.5,
-             color=muted)
     fig.savefig(out, dpi=170)
     print("written", out)
 

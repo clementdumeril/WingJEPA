@@ -11,7 +11,7 @@ Independent project for *Physics-Inspired Machine Learning*, UC Berkeley, Fall 2
 
 The project now runs the test suite of SkyJEPA (Rao et al., arXiv 2606.23444) on PX4's `advanced_plane`, the
 fixed-wing model of the PX4 Gazebo simulation: the recipes of their Table III, the same metrics, and a closed-loop
-test. The runs are in progress on Savio.
+test. First results below; the closed-loop runs are in progress on Savio.
 
 [Ultra Stick study (archived)](archive/ultrastick/README.txt) · [Implementation](docs/IMPLEMENTATION.md) · Related: [Fixed-Wing](https://github.com/clementdumeril/Fixed-Wing),
 [GeneticWing](https://github.com/clementdumeril/GeneticWing)
@@ -41,6 +41,32 @@ test. The runs are in progress on Savio.
 
 - Evaluation: `scripts/eval_skyjepa.py` (position, velocity and attitude error, compounding ratio, straightening,
   observation noise) and `scripts/closed_loop.py` (MPPI with each model against the TECS autopilot).
+
+## First result: the training unroll matters more than the objective
+
+![One-step error and 3 s position error against the training unroll length T, for an MLP on states and for the latent model trained with a prediction loss or a JEPA loss](docs/figures/tsweep.png)
+
+*The 200 test flights on aircraft outside the training ranges, mean of 3 seeds (band: one standard deviation). Data in
+[results/tsweep.csv](results/tsweep.csv), figure from `scripts/plot_tsweep.py`.*
+
+Each model is trained on rollouts of T steps (`train_a.py --T t --T-max t`) and then predicts alone from the commands.
+
+- The one-step error barely moves with T (panel a). The rollout length does not make a better one-step predictor; it
+  teaches the model to stay stable on its own predictions: the error after 3 s drops from 15.5 m to 3.6 m for the
+  latent model, and from 5.1 m to 3.0 m for the MLP.
+- The latent model needs it far more than the MLP: at T = 1 both have the same one-step error, but the latent model is
+  three times worse after 3 s.
+- Prediction loss against JEPA loss, position error at 3 s:
+
+| | T = 1 | T = 20 |
+| --- | --- | --- |
+| prediction loss (`a0`) | 15.5 ± 0.2 m | 3.6 ± 0.3 m |
+| JEPA loss (`jepa`) | 9.2 ± 0.4 m | 5.8 ± 0.1 m |
+
+  The JEPA loss helps only with one-step training. As I read SkyJEPA (its eq. 4), its Predictive baseline is trained
+  on one step while its JEPA unrolls 20; if so, part of the gap it reports may come from the unroll rather than from
+  the objective.
+- The MLP on states is the best at every T (2.8 m at T = 40).
 
 ## Run it
 
